@@ -9,3 +9,4 @@ _________________
     :toctree:
 
     saltext.helm.modules.helm
+    saltext.helm.modules.helm_mod
