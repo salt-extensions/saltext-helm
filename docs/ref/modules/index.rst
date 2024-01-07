@@ -1,12 +1,13 @@
-
 .. all-saltext.helm.modules:
 
 _________________
 Execution Modules
 _________________
 
+.. currentmodule:: saltext.helm.modules
+
 .. autosummary::
     :toctree:
 
-    saltext.helm.modules.helm
-    saltext.helm.modules.helm_mod
+    helm
+    helm_mod

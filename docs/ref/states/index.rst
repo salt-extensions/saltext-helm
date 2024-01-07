@@ -1,12 +1,13 @@
-
 .. all-saltext.helm.states:
 
 _____________
 State Modules
 _____________
 
+.. currentmodule:: saltext.helm.states
+
 .. autosummary::
     :toctree:
 
-    saltext.helm.states.helm
-    saltext.helm.states.helm_mod
+    helm
+    helm_mod

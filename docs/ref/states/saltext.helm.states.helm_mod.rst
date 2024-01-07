@@ -1,6 +1,5 @@
-
-saltext.helm.states.helm_mod
-============================
+``helm``
+========
 
 .. automodule:: saltext.helm.states.helm_mod
     :members:

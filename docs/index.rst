@@ -1,11 +1,30 @@
-Welcome to helm Documentation!
-==============================
+``saltext-helm``: Integrate Salt with Helm
+==========================================
+
+Salt Extension for interacting with Helm
 
 .. toctree::
   :maxdepth: 2
-  :caption: Contents:
+  :caption: Guides
+  :hidden:
 
-  all.rst
+  topics/installation
+
+.. toctree::
+  :maxdepth: 2
+  :caption: Provided Modules
+  :hidden:
+
+  ref/modules/index
+  ref/states/index
+
+.. toctree::
+  :maxdepth: 2
+  :caption: Reference
+  :hidden:
+
+  changelog
+
 
 Indices and tables
 ==================
