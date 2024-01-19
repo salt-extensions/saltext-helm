@@ -31,8 +31,6 @@ To install a chart with the Salt-Module:
 Detailed Function Documentation
 -------------------------------
 """
-
-
 import copy
 import logging
 import re
@@ -194,9 +192,7 @@ def completion(shell, flags=None, kvflags=None):
         salt '*' helm.completion bash
 
     """
-    return _exec_string_return(
-        commands=["completion", shell], flags=flags, kvflags=kvflags
-    )
+    return _exec_string_return(commands=["completion", shell], flags=flags, kvflags=kvflags)
 
 
 def create(name, flags=None, kvflags=None):
@@ -244,9 +240,7 @@ def dependency_build(chart, flags=None, kvflags=None):
         salt '*' helm.dependency_build CHART
 
     """
-    return _exec_true_return(
-        commands=["dependency", "build", chart], flags=flags, kvflags=kvflags
-    )
+    return _exec_true_return(commands=["dependency", "build", chart], flags=flags, kvflags=kvflags)
 
 
 def dependency_list(chart, flags=None, kvflags=None):
@@ -270,9 +264,7 @@ def dependency_list(chart, flags=None, kvflags=None):
         salt '*' helm.dependency_list CHART
 
     """
-    return _exec_string_return(
-        commands=["dependency", "list", chart], flags=flags, kvflags=kvflags
-    )
+    return _exec_string_return(commands=["dependency", "list", chart], flags=flags, kvflags=kvflags)
 
 
 def dependency_update(chart, flags=None, kvflags=None):
@@ -296,9 +288,7 @@ def dependency_update(chart, flags=None, kvflags=None):
         salt '*' helm.dependency_update CHART
 
     """
-    return _exec_true_return(
-        commands=["dependency", "update", chart], flags=flags, kvflags=kvflags
-    )
+    return _exec_true_return(commands=["dependency", "update", chart], flags=flags, kvflags=kvflags)
 
 
 def env(flags=None, kvflags=None):
@@ -343,9 +333,7 @@ def get_all(release, flags=None, kvflags=None):
         salt '*' helm.get_all RELEASE
 
     """
-    return _exec_string_return(
-        commands=["get", "all", release], flags=flags, kvflags=kvflags
-    )
+    return _exec_string_return(commands=["get", "all", release], flags=flags, kvflags=kvflags)
 
 
 def get_hooks(release, flags=None, kvflags=None):
@@ -369,9 +357,7 @@ def get_hooks(release, flags=None, kvflags=None):
         salt '*' helm.get_hooks RELEASE
 
     """
-    return _exec_string_return(
-        commands=["get", "hooks", release], flags=flags, kvflags=kvflags
-    )
+    return _exec_string_return(commands=["get", "hooks", release], flags=flags, kvflags=kvflags)
 
 
 def get_manifest(release, flags=None, kvflags=None):
@@ -395,9 +381,7 @@ def get_manifest(release, flags=None, kvflags=None):
         salt '*' helm.get_manifest RELEASE
 
     """
-    return _exec_string_return(
-        commands=["get", "manifest", release], flags=flags, kvflags=kvflags
-    )
+    return _exec_string_return(commands=["get", "manifest", release], flags=flags, kvflags=kvflags)
 
 
 def get_notes(release, flags=None, kvflags=None):
@@ -421,9 +405,7 @@ def get_notes(release, flags=None, kvflags=None):
         salt '*' helm.get_notes RELEASE
 
     """
-    return _exec_string_return(
-        commands=["get", "notes", release], flags=flags, kvflags=kvflags
-    )
+    return _exec_string_return(commands=["get", "notes", release], flags=flags, kvflags=kvflags)
 
 
 def get_values(release, flags=None, kvflags=None):
@@ -450,9 +432,7 @@ def get_values(release, flags=None, kvflags=None):
         salt '*' helm.get_values RELEASE kvflags="{'output': 'yaml'}"
 
     """
-    return _exec_dict_return(
-        commands=["get", "values", release], flags=flags, kvflags=kvflags
-    )
+    return _exec_dict_return(commands=["get", "values", release], flags=flags, kvflags=kvflags)
 
 
 def help_(command, flags=None, kvflags=None):
@@ -503,9 +483,7 @@ def history(release, flags=None, kvflags=None):
         salt '*' helm.history RELEASE kvflags="{'output': 'yaml'}"
 
     """
-    return _exec_dict_return(
-        commands=["history", release], flags=flags, kvflags=kvflags
-    )
+    return _exec_dict_return(commands=["history", release], flags=flags, kvflags=kvflags)
 
 
 def install(
@@ -576,9 +554,7 @@ def install(
             kvflags.update({"set": set})
         else:
             kvflags = {"set": set}
-    return _exec_true_return(
-        commands=["install", release, chart], flags=flags, kvflags=kvflags
-    )
+    return _exec_true_return(commands=["install", release, chart], flags=flags, kvflags=kvflags)
 
 
 def lint(path, values=None, namespace=None, set=None, flags=None, kvflags=None):
@@ -710,9 +686,7 @@ def plugin_install(path, flags=None, kvflags=None):
         salt '*' helm.plugin_install PATH
 
     """
-    return _exec_true_return(
-        commands=["plugin", "install", path], flags=flags, kvflags=kvflags
-    )
+    return _exec_true_return(commands=["plugin", "install", path], flags=flags, kvflags=kvflags)
 
 
 def plugin_list(flags=None, kvflags=None):
@@ -733,9 +707,7 @@ def plugin_list(flags=None, kvflags=None):
         salt '*' helm.plugin_list
 
     """
-    return _exec_string_return(
-        commands=["plugin", "list"], flags=flags, kvflags=kvflags
-    )
+    return _exec_string_return(commands=["plugin", "list"], flags=flags, kvflags=kvflags)
 
 
 def plugin_uninstall(plugin, flags=None, kvflags=None):
@@ -759,9 +731,7 @@ def plugin_uninstall(plugin, flags=None, kvflags=None):
         salt '*' helm.plugin_uninstall PLUGIN
 
     """
-    return _exec_true_return(
-        commands=["plugin", "uninstall", plugin], flags=flags, kvflags=kvflags
-    )
+    return _exec_true_return(commands=["plugin", "uninstall", plugin], flags=flags, kvflags=kvflags)
 
 
 def plugin_update(plugin, flags=None, kvflags=None):
@@ -785,9 +755,7 @@ def plugin_update(plugin, flags=None, kvflags=None):
         salt '*' helm.plugin_update PLUGIN
 
     """
-    return _exec_true_return(
-        commands=["plugin", "update", plugin], flags=flags, kvflags=kvflags
-    )
+    return _exec_true_return(commands=["plugin", "update", plugin], flags=flags, kvflags=kvflags)
 
 
 def pull(pkg, flags=None, kvflags=None):
@@ -849,9 +817,7 @@ def repo_add(name, url, namespace=None, flags=None, kvflags=None):
             kvflags.update({"namespace": namespace})
         else:
             kvflags = {"namespace": namespace}
-    return _exec_true_return(
-        commands=["repo", "add", name, url], flags=flags, kvflags=kvflags
-    )
+    return _exec_true_return(commands=["repo", "add", name, url], flags=flags, kvflags=kvflags)
 
 
 def repo_index(directory, namespace=None, flags=None, kvflags=None):
@@ -883,9 +849,7 @@ def repo_index(directory, namespace=None, flags=None, kvflags=None):
             kvflags.update({"namespace": namespace})
         else:
             kvflags = {"namespace": namespace}
-    return _exec_true_return(
-        commands=["repo", "index", directory], flags=flags, kvflags=kvflags
-    )
+    return _exec_true_return(commands=["repo", "index", directory], flags=flags, kvflags=kvflags)
 
 
 def repo_list(namespace=None, flags=None, kvflags=None):
@@ -949,9 +913,7 @@ def repo_remove(name, namespace=None, flags=None, kvflags=None):
             kvflags.update({"namespace": namespace})
         else:
             kvflags = {"namespace": namespace}
-    return _exec_true_return(
-        commands=["repo", "remove", name], flags=flags, kvflags=kvflags
-    )
+    return _exec_true_return(commands=["repo", "remove", name], flags=flags, kvflags=kvflags)
 
 
 def repo_update(namespace=None, flags=None, kvflags=None):
@@ -983,9 +945,7 @@ def repo_update(namespace=None, flags=None, kvflags=None):
     return _exec_true_return(commands=["repo", "update"], flags=flags, kvflags=kvflags)
 
 
-def repo_manage(
-    present=None, absent=None, prune=False, namespace=None, flags=None, kvflags=None
-):
+def repo_manage(present=None, absent=None, prune=False, namespace=None, flags=None, kvflags=None):
     """
     Manage charts repository.
     Return the summery of all actions.
@@ -1035,9 +995,7 @@ def repo_manage(
     result = {"present": [], "added": [], "absent": [], "removed": [], "failed": []}
 
     for repo in present:
-        if not (
-            isinstance(repo, dict) and "name" in repo.keys() and "url" in repo.keys()
-        ):
+        if not (isinstance(repo, dict) and "name" in repo.keys() and "url" in repo.keys()):
             raise CommandExecutionError(
                 "Parameter present have to be formatted like "
                 "[{'name': '<myRepoName>', 'url': '<myRepoUrl>'}]"
@@ -1045,9 +1003,9 @@ def repo_manage(
 
         already_present = False
         for (index, repo_present) in enumerate(repos_present):
-            if repo.get("name") == repo_present.get("name") and repo.get(
+            if repo.get("name") == repo_present.get("name") and repo.get("url") == repo_present.get(
                 "url"
-            ) == repo_present.get("url"):
+            ):
                 result["present"].append(repo)
                 repos_present.pop(index)
                 already_present = True
@@ -1118,9 +1076,7 @@ def rollback(release, revision, namespace=None, flags=None, kvflags=None):
             kvflags.update({"namespace": namespace})
         else:
             kvflags = {"namespace": namespace}
-    return _exec_true_return(
-        commands=["rollback", release, revision], flags=flags, kvflags=kvflags
-    )
+    return _exec_true_return(commands=["rollback", release, revision], flags=flags, kvflags=kvflags)
 
 
 def search_hub(keyword, flags=None, kvflags=None):
@@ -1147,9 +1103,7 @@ def search_hub(keyword, flags=None, kvflags=None):
         salt '*' helm.search_hub KEYWORD kvflags="{'output': 'yaml'}"
 
     """
-    return _exec_dict_return(
-        commands=["search", "hub", keyword], flags=flags, kvflags=kvflags
-    )
+    return _exec_dict_return(commands=["search", "hub", keyword], flags=flags, kvflags=kvflags)
 
 
 def search_repo(keyword, flags=None, kvflags=None):
@@ -1177,9 +1131,7 @@ def search_repo(keyword, flags=None, kvflags=None):
         salt '*' helm.search_hub KEYWORD kvflags="{'output': 'yaml'}"
 
     """
-    return _exec_dict_return(
-        commands=["search", "repo", keyword], flags=flags, kvflags=kvflags
-    )
+    return _exec_dict_return(commands=["search", "repo", keyword], flags=flags, kvflags=kvflags)
 
 
 def show_all(chart, flags=None, kvflags=None):
@@ -1203,9 +1155,7 @@ def show_all(chart, flags=None, kvflags=None):
         salt '*' helm.show_all CHART
 
     """
-    return _exec_string_return(
-        commands=["show", "all", chart], flags=flags, kvflags=kvflags
-    )
+    return _exec_string_return(commands=["show", "all", chart], flags=flags, kvflags=kvflags)
 
 
 def show_chart(chart, flags=None, kvflags=None):
@@ -1229,9 +1179,7 @@ def show_chart(chart, flags=None, kvflags=None):
         salt '*' helm.show_chart CHART
 
     """
-    return _exec_string_return(
-        commands=["show", "chart", chart], flags=flags, kvflags=kvflags
-    )
+    return _exec_string_return(commands=["show", "chart", chart], flags=flags, kvflags=kvflags)
 
 
 def show_readme(chart, flags=None, kvflags=None):
@@ -1255,9 +1203,7 @@ def show_readme(chart, flags=None, kvflags=None):
         salt '*' helm.show_readme CHART
 
     """
-    return _exec_string_return(
-        commands=["show", "readme", chart], flags=flags, kvflags=kvflags
-    )
+    return _exec_string_return(commands=["show", "readme", chart], flags=flags, kvflags=kvflags)
 
 
 def show_values(chart, flags=None, kvflags=None):
@@ -1281,9 +1227,7 @@ def show_values(chart, flags=None, kvflags=None):
         salt '*' helm.show_values CHART
 
     """
-    return _exec_string_return(
-        commands=["show", "values", chart], flags=flags, kvflags=kvflags
-    )
+    return _exec_string_return(commands=["show", "values", chart], flags=flags, kvflags=kvflags)
 
 
 def status(release, namespace=None, flags=None, kvflags=None):
@@ -1321,9 +1265,7 @@ def status(release, namespace=None, flags=None, kvflags=None):
     return _exec_dict_return(commands=["status", release], flags=flags, kvflags=kvflags)
 
 
-def template(
-    name, chart, values=None, output_dir=None, set=None, flags=None, kvflags=None
-):
+def template(name, chart, values=None, output_dir=None, set=None, flags=None, kvflags=None):
     """
     Render chart templates locally and display the output.
     Return the chart renderer if succeed, else the error message.
@@ -1371,9 +1313,7 @@ def template(
             kvflags = {"set": set}
     if output_dir:
         kvflags.update({"output-dir": output_dir})
-    return _exec_string_return(
-        commands=["template", name, chart], flags=flags, kvflags=kvflags
-    )
+    return _exec_string_return(commands=["template", name, chart], flags=flags, kvflags=kvflags)
 
 
 def test(release, flags=None, kvflags=None):
@@ -1432,9 +1372,7 @@ def uninstall(release, namespace=None, flags=None, kvflags=None):
             kvflags.update({"namespace": namespace})
         else:
             kvflags = {"namespace": namespace}
-    return _exec_true_return(
-        commands=["uninstall", release], flags=flags, kvflags=kvflags
-    )
+    return _exec_true_return(commands=["uninstall", release], flags=flags, kvflags=kvflags)
 
 
 def upgrade(
@@ -1508,9 +1446,7 @@ def upgrade(
             kvflags.update({"set": set})
         else:
             kvflags = {"set": set}
-    return _exec_true_return(
-        commands=["upgrade", release, chart], flags=flags, kvflags=kvflags
-    )
+    return _exec_true_return(commands=["upgrade", release, chart], flags=flags, kvflags=kvflags)
 
 
 def verify(path, flags=None, kvflags=None):

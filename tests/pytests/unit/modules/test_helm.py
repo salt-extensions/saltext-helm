@@ -1,15 +1,15 @@
 """
     Test cases for salt.modules.helm
 """
-
+from unittest.mock import call
+from unittest.mock import MagicMock
+from unittest.mock import patch
 
 import pytest
-
 import salt.modules.helm as helm
+from salt.exceptions import CommandExecutionError
 
 # Import Exception
-from salt.exceptions import CommandExecutionError
-from tests.support.mock import MagicMock, call, patch
 
 
 @pytest.fixture
@@ -73,9 +73,7 @@ def test__exec_cmd():
     result.update({"cmd": cmd_prepare_str})
     with patch.dict(
         helm.__salt__,
-        {  # pylint: disable=no-member
-            "cmd.run_all": MagicMock(return_value=cmd_return)
-        },
+        {"cmd.run_all": MagicMock(return_value=cmd_return)},  # pylint: disable=no-member
     ):
         assert helm._exec_cmd() == result
 
@@ -183,9 +181,7 @@ def test_env():
     magic_mock = MagicMock(return_value="the_return")
     with patch("salt.modules.helm._exec_string_return", magic_mock):
         assert "the_return" == helm.env()
-        assert [
-            call(commands=["env"], flags=None, kvflags=None)
-        ] == magic_mock.mock_calls
+        assert [call(commands=["env"], flags=None, kvflags=None)] == magic_mock.mock_calls
 
 
 def test_get_all():
@@ -272,18 +268,14 @@ def test_lint():
     magic_mock = MagicMock(return_value=True)
     with patch("salt.modules.helm._exec_true_return", magic_mock):
         assert True is helm.lint("path")
-        assert [
-            call(commands=["lint", "path"], flags=None, kvflags=None)
-        ] == magic_mock.mock_calls
+        assert [call(commands=["lint", "path"], flags=None, kvflags=None)] == magic_mock.mock_calls
 
 
 def test_list_():
     magic_mock = MagicMock(return_value={"test": True})
     with patch("salt.modules.helm._exec_dict_return", magic_mock):
         assert {"test": True} == helm.list_()
-        assert [
-            call(commands=["list"], flags=None, kvflags=None)
-        ] == magic_mock.mock_calls
+        assert [call(commands=["list"], flags=None, kvflags=None)] == magic_mock.mock_calls
 
 
 def test_package():
@@ -343,9 +335,7 @@ def test_pull():
     magic_mock = MagicMock(return_value=True)
     with patch("salt.modules.helm._exec_true_return", magic_mock):
         assert True is helm.pull("pkg")
-        assert [
-            call(commands=["pull", "pkg"], flags=None, kvflags=None)
-        ] == magic_mock.mock_calls
+        assert [call(commands=["pull", "pkg"], flags=None, kvflags=None)] == magic_mock.mock_calls
 
 
 def test_repo_add():
@@ -378,9 +368,7 @@ def test_repo_list():
     magic_mock = MagicMock(return_value={"test": True})
     with patch("salt.modules.helm._exec_dict_return", magic_mock):
         assert {"test": True} == helm.repo_list()
-        assert [
-            call(commands=["repo", "list"], flags=None, kvflags=None)
-        ] == magic_mock.mock_calls
+        assert [call(commands=["repo", "list"], flags=None, kvflags=None)] == magic_mock.mock_calls
 
 
 def test_repo_remove():
@@ -423,10 +411,7 @@ def test_repo_manage_present_failed():
     }
     with patch("salt.modules.helm.repo_list", MagicMock(return_value=None)):
         with patch("salt.modules.helm.repo_add", MagicMock(return_value="failed")):
-            assert (
-                helm.repo_manage(present=[{"name": "myname", "url": "myurl"}])
-                == result_wanted
-            )
+            assert helm.repo_manage(present=[{"name": "myname", "url": "myurl"}]) == result_wanted
 
 
 def test_repo_manage_present_succeed():
@@ -439,10 +424,7 @@ def test_repo_manage_present_succeed():
     }
     with patch("salt.modules.helm.repo_list", MagicMock(return_value=None)):
         with patch("salt.modules.helm.repo_add", MagicMock(return_value=True)):
-            assert (
-                helm.repo_manage(present=[{"name": "myname", "url": "myurl"}])
-                == result_wanted
-            )
+            assert helm.repo_manage(present=[{"name": "myname", "url": "myurl"}]) == result_wanted
 
 
 def test_repo_manage_present_already_present():
@@ -457,10 +439,7 @@ def test_repo_manage_present_already_present():
         "salt.modules.helm.repo_list",
         MagicMock(return_value=[{"name": "myname", "url": "myurl"}]),
     ):
-        assert (
-            helm.repo_manage(present=[{"name": "myname", "url": "myurl"}])
-            == result_wanted
-        )
+        assert helm.repo_manage(present=[{"name": "myname", "url": "myurl"}]) == result_wanted
 
 
 def test_repo_manage_prune():
@@ -634,6 +613,4 @@ def test_version():
     magic_mock = MagicMock(return_value="the_return")
     with patch("salt.modules.helm._exec_string_return", magic_mock):
         assert "the_return" == helm.version()
-        assert [
-            call(commands=["version"], flags=None, kvflags=None)
-        ] == magic_mock.mock_calls
+        assert [call(commands=["version"], flags=None, kvflags=None)] == magic_mock.mock_calls

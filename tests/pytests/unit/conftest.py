@@ -1,10 +1,10 @@
 import asyncio
+from unittest.mock import MagicMock
+from unittest.mock import patch
 
 import pytest
-
 import salt.config
 import salt.transport.tcp
-from tests.support.mock import MagicMock, patch
 
 
 @pytest.fixture
@@ -16,7 +16,7 @@ def minion_opts(tmp_path):
     opts = salt.config.DEFAULT_MINION_OPTS.copy()
     opts["__role"] = "minion"
     opts["root_dir"] = str(root_dir)
-    opts["master_uri"] = "tcp://{ip}:{port}".format(
+    opts["master_uri"] = "tcp://{ip}:{port}".format(  # pylint: disable=consider-using-f-string
         ip="127.0.0.1", port=opts["master_port"]
     )
     for name in ("cachedir", "pki_dir", "sock_dir", "conf_dir"):
