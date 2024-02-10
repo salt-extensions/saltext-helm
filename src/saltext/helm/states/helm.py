@@ -99,7 +99,7 @@ def repo_managed(
 
         except CommandExecutionError as err:
             ret["result"] = False
-            ret["comment"] = "Failed to add some repositories: {}.".format(err)
+            ret["comment"] = f"Failed to add some repositories: {err}."
 
     return ret
 
@@ -144,9 +144,7 @@ def repo_updated(name, namespace=None, flags=None, kvflags=None):
         ret["comment"] = "Helm repo would have been updated."
     else:
         try:
-            result = __salt__["helm.repo_update"](
-                namespace=namespace, flags=flags, kvflags=kvflags
-            )
+            result = __salt__["helm.repo_update"](namespace=namespace, flags=flags, kvflags=kvflags)
             if not (isinstance(result, bool) and result):
                 ret["result"] = False
                 ret["changes"] = result
@@ -154,7 +152,7 @@ def repo_updated(name, namespace=None, flags=None, kvflags=None):
 
         except CommandExecutionError as err:
             ret["result"] = False
-            ret["comment"] = "Failed to update some repositories: {}.".format(err)
+            ret["comment"] = f"Failed to update some repositories: {err}."
 
     return ret
 
@@ -226,7 +224,7 @@ def release_present(
         "name": name,
         "changes": {},
         "result": True,
-        "comment": "Helm release {} is present".format(name),
+        "comment": f"Helm release {name} is present",
     }
 
     if "helm.status" not in __salt__:
@@ -255,9 +253,7 @@ def release_present(
                 kvflags=kvflags,
             )
             if isinstance(release_upgrade, bool) and release_upgrade:
-                release_cur_status = __salt__["helm.status"](
-                    release=name, namespace=namespace
-                )
+                release_cur_status = __salt__["helm.status"](release=name, namespace=namespace)
                 if isinstance(release_cur_status, dict):
                     release_cur_status.pop("manifest")
                     ret["changes"] = release_cur_status
@@ -280,9 +276,7 @@ def release_present(
                 kvflags=kvflags,
             )
             if isinstance(release_install, bool) and release_install:
-                release_cur_status = __salt__["helm.status"](
-                    release=name, namespace=namespace
-                )
+                release_cur_status = __salt__["helm.status"](release=name, namespace=namespace)
                 if isinstance(release_cur_status, dict):
                     release_cur_status.pop("manifest")
                     ret["changes"] = release_cur_status
@@ -332,7 +326,7 @@ def release_absent(name, namespace=None, flags=None, kvflags=None):
         "name": name,
         "changes": {},
         "result": True,
-        "comment": "Helm release {} is absent.".format(name),
+        "comment": f"Helm release {name} is absent.",
     }
 
     if "helm.uninstall" not in __salt__:
