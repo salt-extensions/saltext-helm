@@ -10,4 +10,3 @@ _________________
     :toctree:
 
     helm
-    helm_mod
