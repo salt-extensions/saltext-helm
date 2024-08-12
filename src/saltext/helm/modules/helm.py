@@ -31,6 +31,7 @@ To install a chart with the Salt-Module:
 Detailed Function Documentation
 -------------------------------
 """
+
 import copy
 import logging
 import re
@@ -1002,7 +1003,7 @@ def repo_manage(present=None, absent=None, prune=False, namespace=None, flags=No
             )
 
         already_present = False
-        for (index, repo_present) in enumerate(repos_present):
+        for index, repo_present in enumerate(repos_present):
             if repo.get("name") == repo_present.get("name") and repo.get("url") == repo_present.get(
                 "url"
             ):

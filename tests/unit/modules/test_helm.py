@@ -1,8 +1,9 @@
 """
     Test cases for salt.modules.helm
 """
-from unittest.mock import call
+
 from unittest.mock import MagicMock
+from unittest.mock import call
 from unittest.mock import patch
 
 import pytest
