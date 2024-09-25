@@ -6,7 +6,8 @@ from unittest.mock import MagicMock
 from unittest.mock import patch
 
 import pytest
-import salt.states.helm as helm
+
+from saltext.helm.states import helm
 
 
 @pytest.fixture
