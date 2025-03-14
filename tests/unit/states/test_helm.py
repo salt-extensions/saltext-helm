@@ -1,5 +1,5 @@
 """
-    Test cases for salt.modules.helm
+Test cases for salt.modules.helm
 """
 
 from unittest.mock import MagicMock
