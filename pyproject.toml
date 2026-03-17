@@ -15,6 +15,7 @@ name = "saltext.helm"
 description = "Salt Extension for interacting with Helm"
 authors = [
     {name = "EITR Technologies, LLC", email = "devops@eitr.tech"},
+    {name = "Georg Pfuetzenreuter", email = "georg.pfuetzenreuter+salt@suse.com"},
 ]
 keywords = [
     "salt-extension",
@@ -26,6 +27,7 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
@@ -34,6 +36,7 @@ requires-python = ">= 3.10"
 dynamic = ["version"]
 dependencies = [
     "salt>=3006",
+    "pyhelm3",
 ]
 
 [project.readme]

@@ -60,3 +60,20 @@ def syndic_opts(tmp_path):  # pragma: no cover
     opts["log_file"] = "logs/syndic.log"
     opts["conf_file"] = os.path.join(opts["conf_dir"], "syndic")
     return opts
+
+
+@pytest.fixture(scope="session")
+def fake_output():
+    out = {}
+    for cmd in [
+        "get_all",
+        "get_values",
+        "list",
+        "show_chart",
+        "status",
+        "upgrade",
+    ]:
+        with open(f"tests/unit/fake_output/helm_{cmd}.out", encoding="utf-8") as fh:
+            out[cmd] = fh.read()
+
+    yield out

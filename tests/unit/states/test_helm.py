@@ -1,13 +1,32 @@
-"""
-Test cases for salt.modules.helm
-"""
+# pylint: disable=use-implicit-booleaness-not-comparison  # asserting the return as it is written in the tested function is more readable
 
+import datetime
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
+import pyhelm3  # pylint: disable=import-error  # works under nox
 import pytest
 
 from saltext.helm.states import helm
+
+MOCK_CHART = pyhelm3.models.Chart(
+    _command="nothing",
+    ref="oci://dp.apps.rancher.io/charts/cert-manager",
+    metadata={
+        "name": "cert-manager",
+        "version": "1.19.2",
+        "apiVersion": "v2",
+    },
+    _values={
+        "crds": {"enabled": False},
+    },
+)
+
+MOCK_RELEASE = pyhelm3.models.Release(
+    _command="nothing",
+    name="cert-manager",
+    namespace="test",
+)
 
 
 @pytest.fixture
@@ -15,262 +34,252 @@ def configure_loader_modules():
     return {helm: {}}
 
 
-def test_repo_managed_import_failed_repo_manage():
-    ret = {
-        "name": "state_id",
-        "changes": {},
-        "result": False,
-        "comment": "'helm.repo_manage' modules not available on this minion.",
-    }
-    assert helm.repo_managed("state_id") == ret
+@pytest.mark.parametrize("test", [True, False])
+def test_release_present_new(test):
+    mock_release_revision_in = {}
 
+    mock_release_revision_out = pyhelm3.models.ReleaseRevision(
+        _command="nothing",
+        app_version="1.19.2",
+        chart=MOCK_CHART,
+        name="cert-manager",
+        namespace="testspace",
+        revision=7,
+        status=pyhelm3.models.ReleaseRevisionStatus.DEPLOYED,
+        values={
+            "crds": {"enabled": False},
+        },
+        release=MOCK_RELEASE,
+        updated=datetime.MINYEAR,
+    )
 
-def test_repo_managed_import_failed_repo_update():
-    mock_helm_modules = {"helm.repo_manage": MagicMock(return_value=True)}
-    with patch.dict(helm.__salt__, mock_helm_modules):
-        ret = {
-            "name": "state_id",
-            "changes": {},
-            "result": False,
-            "comment": "'helm.repo_update' modules not available on this minion.",
-        }
-        assert helm.repo_managed("state_id") == ret
+    with (
+        patch.dict(helm.__opts__, {"test": test}),
+        patch.dict(
+            helm.__salt__,
+            {
+                "helm.get_chart": MagicMock(return_value=MOCK_CHART),
+                "helm.get_current_revision": MagicMock(return_value=mock_release_revision_in),
+                "helm.install_or_upgrade_release": MagicMock(
+                    return_value=mock_release_revision_out,
+                ),
+            },
+        ),
+    ):
+        res = helm.release_present(
+            name="cert-manager",
+            chart={
+                "name": "oci://dp.apps.rancher.io/charts/cert-manager",
+                "version": "1.19.2",
+            },
+            values={"crds": {"enabled": False}},
+            description="Hello World!",
+            namespace="test",
+        )
 
+        assert res["name"] == "cert-manager"
 
-def test_repo_managed_is_testing():
-    mock_helm_modules = {
-        "helm.repo_manage": MagicMock(return_value=True),
-        "helm.repo_update": MagicMock(return_value=True),
-    }
-    with patch.dict(helm.__salt__, mock_helm_modules):
-        mock__opts__ = {"test": MagicMock(return_value=True)}
-        with patch.dict(helm.__opts__, mock__opts__):
-            ret = {
-                "name": "state_id",
-                "result": None,
-                "comment": "Helm repo would have been managed.",
-                "changes": {},
+        if test:
+            assert res["result"] is None
+            assert res["changes"] == {
+                "old": None,
+                "new": {
+                    "chart": {
+                        "name": "cert-manager",
+                        "version": "1.19.2",
+                    },
+                    "values": {"crds": {"enabled": False}},
+                },
             }
-            assert helm.repo_managed("state_id") == ret
+            assert res["comment"] == "Would install release."
 
-
-def test_repo_managed_success():
-    result_changes = {"added": True, "removed": True, "failed": False}
-    mock_helm_modules = {
-        "helm.repo_manage": MagicMock(return_value=result_changes),
-        "helm.repo_update": MagicMock(return_value=True),
-    }
-    with patch.dict(helm.__salt__, mock_helm_modules):
-        ret = {
-            "name": "state_id",
-            "result": True,
-            "comment": "Repositories were added or removed.",
-            "changes": result_changes,
-        }
-        assert helm.repo_managed("state_id") == ret
-
-
-def test_repo_managed_success_with_update():
-    result_changes = {"added": True, "removed": True, "failed": False}
-    mock_helm_modules = {
-        "helm.repo_manage": MagicMock(return_value=result_changes),
-        "helm.repo_update": MagicMock(return_value=True),
-    }
-    result_wanted = result_changes
-    result_wanted.update({"repo_update": True})
-    with patch.dict(helm.__salt__, mock_helm_modules):
-        ret = {
-            "name": "state_id",
-            "result": True,
-            "comment": "Repositories were added or removed.",
-            "changes": result_wanted,
-        }
-        assert helm.repo_managed("state_id") == ret
-
-
-def test_repo_managed_failed():
-    result_changes = {"added": True, "removed": True, "failed": True}
-    mock_helm_modules = {
-        "helm.repo_manage": MagicMock(return_value=result_changes),
-        "helm.repo_update": MagicMock(return_value=True),
-    }
-    with patch.dict(helm.__salt__, mock_helm_modules):
-        ret = {
-            "name": "state_id",
-            "result": False,
-            "comment": "Failed to add or remove some repositories.",
-            "changes": result_changes,
-        }
-        assert helm.repo_managed("state_id") == ret
-
-
-def test_repo_updated_import_failed():
-    ret = {
-        "name": "state_id",
-        "changes": {},
-        "result": False,
-        "comment": "'helm.repo_update' modules not available on this minion.",
-    }
-    assert helm.repo_updated("state_id") == ret
-
-
-def test_repo_updated_is_testing():
-    mock_helm_modules = {"helm.repo_update": MagicMock(return_value=True)}
-    with patch.dict(helm.__salt__, mock_helm_modules):
-        mock__opts__ = {"test": MagicMock(return_value=True)}
-        with patch.dict(helm.__opts__, mock__opts__):
-            ret = {
-                "name": "state_id",
-                "result": None,
-                "comment": "Helm repo would have been updated.",
-                "changes": {},
+        else:
+            assert res["result"] is True
+            assert res["changes"] == {
+                "old": None,
+                "new": {
+                    "status": "deployed",
+                    "name": "cert-manager",
+                    "namespace": "test",
+                    "chart": {"name": "cert-manager", "version": "1.19.2"},
+                    "values": {"crds": {"enabled": False}},
+                },
             }
-            assert helm.repo_updated("state_id") == ret
+            assert res["comment"] == "Successfully installed release."
 
 
-def test_repo_updated_success():
-    mock_helm_modules = {"helm.repo_update": MagicMock(return_value=True)}
-    with patch.dict(helm.__salt__, mock_helm_modules):
-        ret = {
-            "name": "state_id",
-            "result": True,
-            "comment": "Helm repo is updated.",
-            "changes": {},
-        }
-        assert helm.repo_updated("state_id") == ret
-
-
-def test_repo_updated_failed():
-    mock_helm_modules = {"helm.repo_update": MagicMock(return_value=False)}
-    with patch.dict(helm.__salt__, mock_helm_modules):
-        ret = {
-            "name": "state_id",
-            "result": False,
-            "comment": "Failed to sync some repositories.",
-            "changes": False,
-        }
-        assert helm.repo_updated("state_id") == ret
-
-
-def test_release_present_import_failed_helm_status():
-    ret = {
-        "name": "state_id",
-        "changes": {},
-        "result": False,
-        "comment": "'helm.status' modules not available on this minion.",
+@pytest.mark.parametrize("test", [True, False])
+def test_release_present_changed_values(test):
+    mock_release_revision_in = {
+        "app_version": "1.19.2",
+        "chart": {
+            "name": "cert-manager",
+            "version": "1.19.2",
+        },
+        "name": "cert-manager",
+        "namespace": "testspace",
+        "revision": 7,
+        "status": "deployed",
+        "values": {
+            "crds": {"enabled": True},
+        },
     }
-    assert helm.release_present("state_id", "mychart") == ret
 
+    mock_release_revision_out = pyhelm3.models.ReleaseRevision(
+        _command="nothing",
+        app_version="1.19.2",
+        chart=MOCK_CHART,
+        name="cert-manager",
+        namespace="testspace",
+        revision=7,
+        status=pyhelm3.models.ReleaseRevisionStatus.DEPLOYED,
+        values={
+            "crds": {"enabled": False},
+        },
+        release=MOCK_RELEASE,
+        updated=datetime.MINYEAR,
+    )
 
-def test_release_present_import_failed_helm_install():
-    mock_helm_modules = {"helm.status": MagicMock(return_value=True)}
-    with patch.dict(helm.__salt__, mock_helm_modules):
-        ret = {
-            "name": "state_id",
-            "changes": {},
-            "result": False,
-            "comment": "'helm.install' modules not available on this minion.",
-        }
-        assert helm.release_present("state_id", "mychart") == ret
+    with (
+        patch.dict(helm.__opts__, {"test": test}),
+        patch.dict(
+            helm.__salt__,
+            {
+                "helm.get_chart": MagicMock(return_value=MOCK_CHART),
+                "helm.get_current_revision": MagicMock(return_value=mock_release_revision_in),
+                "helm.install_or_upgrade_release": MagicMock(
+                    return_value=mock_release_revision_out,
+                ),
+            },
+        ),
+    ):
+        res = helm.release_present(
+            name="cert-manager",
+            chart={
+                "name": "oci://dp.apps.rancher.io/charts/cert-manager",
+                "version": "1.19.2",
+            },
+            values={"crds": {"enabled": False}},
+            description="Hello World!",
+            namespace="test",
+        )
 
+        assert res["name"] == "cert-manager"
 
-def test_release_present_import_failed_helm_upgrade():
-    mock_helm_modules = {
-        "helm.status": MagicMock(return_value=True),
-        "helm.install": MagicMock(return_value=True),
-    }
-    with patch.dict(helm.__salt__, mock_helm_modules):
-        ret = {
-            "name": "state_id",
-            "changes": {},
-            "result": False,
-            "comment": "'helm.upgrade' modules not available on this minion.",
-        }
-        assert helm.release_present("state_id", "mychart") == ret
-
-
-def test_release_present_is_testing():
-    mock_helm_modules = {
-        "helm.status": MagicMock(return_value=True),
-        "helm.install": MagicMock(return_value=True),
-        "helm.upgrade": MagicMock(return_value=True),
-    }
-    with patch.dict(helm.__salt__, mock_helm_modules):
-        mock__opts__ = {"test": MagicMock(return_value=True)}
-        with patch.dict(helm.__opts__, mock__opts__):
-            ret = {
-                "name": "state_id",
-                "result": None,
-                "comment": "Helm release would have been installed or updated.",
-                "changes": {},
+        if test:
+            assert res["result"] is None
+            assert res["changes"] == {
+                "old": {"values": {"crds": {"enabled": True}}},
+                "new": {"values": {"crds": {"enabled": False}}},
             }
-            assert helm.release_present("state_id", "mychart") == ret
+            assert res["comment"] == "Would update release."
 
-
-def test_release_absent_import_failed_helm_uninstall():
-    ret = {
-        "name": "state_id",
-        "changes": {},
-        "result": False,
-        "comment": "'helm.uninstall' modules not available on this minion.",
-    }
-    assert helm.release_absent("state_id") == ret
-
-
-def test_release_absent_import_failed_helm_status():
-    mock_helm_modules = {"helm.uninstall": MagicMock(return_value=True)}
-    with patch.dict(helm.__salt__, mock_helm_modules):
-        ret = {
-            "name": "state_id",
-            "changes": {},
-            "result": False,
-            "comment": "'helm.status' modules not available on this minion.",
-        }
-        assert helm.release_absent("state_id") == ret
-
-
-def test_release_absent_is_testing():
-    mock_helm_modules = {
-        "helm.status": MagicMock(return_value=True),
-        "helm.uninstall": MagicMock(return_value=True),
-    }
-    with patch.dict(helm.__salt__, mock_helm_modules):
-        mock__opts__ = {"test": MagicMock(return_value=True)}
-        with patch.dict(helm.__opts__, mock__opts__):
-            ret = {
-                "name": "state_id",
-                "result": None,
-                "comment": "Helm release would have been uninstalled.",
-                "changes": {},
+        else:
+            assert res["result"] is True
+            assert res["changes"] == {
+                "old": {"values": {"crds": {"enabled": True}}},
+                "new": {
+                    "status": "deployed",
+                    "name": "cert-manager",
+                    "namespace": "test",
+                    "chart": {"name": "cert-manager", "version": "1.19.2"},
+                    "values": {"crds": {"enabled": False}},
+                },
             }
-            assert helm.release_absent("state_id") == ret
+            assert res["comment"] == "Successfully updated release."
 
 
-def test_release_absent_success():
-    mock_helm_modules = {
-        "helm.status": MagicMock(return_value={}),
-        "helm.uninstall": MagicMock(return_value=True),
+@pytest.mark.parametrize("test", [True, False])
+def test_release_present_no_changes(test):
+    mock_release_revision_in = {
+        "app_version": "1.19.2",
+        "chart": {
+            "name": "cert-manager",
+            "version": "1.19.2",
+        },
+        "name": "cert-manager",
+        "namespace": "testspace",
+        "revision": 7,
+        "status": "deployed",
+        "values": {
+            "crds": {"enabled": True},
+        },
     }
-    with patch.dict(helm.__salt__, mock_helm_modules):
-        ret = {
-            "name": "state_id",
-            "result": True,
-            "comment": "Helm release state_id is absent.",
-            "changes": {"absent": "state_id"},
-        }
-        assert helm.release_absent("state_id") == ret
+
+    with (
+        patch.dict(helm.__opts__, {"test": test}),
+        patch.dict(
+            helm.__salt__,
+            {
+                "helm.get_chart": MagicMock(return_value=MOCK_CHART),
+                "helm.get_current_revision": MagicMock(return_value=mock_release_revision_in),
+            },
+        ),
+    ):
+        res = helm.release_present(
+            name="cert-manager",
+            chart={
+                "name": "oci://dp.apps.rancher.io/charts/cert-manager",
+                "version": "1.19.2",
+            },
+            values={"crds": {"enabled": True}},
+            description="Hello World!",
+            namespace="test",
+        )
+
+        assert res["name"] == "cert-manager"
+
+        assert res["result"] is True
+        assert res["changes"] == {}
+        assert res["comment"] == "Release matches the configuration."
 
 
-def test_release_absent_error():
-    mock_helm_modules = {
-        "helm.status": MagicMock(return_value={}),
-        "helm.uninstall": MagicMock(return_value="error"),
+@pytest.mark.parametrize("test", [True, False])
+def test_release_absent(test):
+    mock_release_revision_in = {
+        "app_version": "1.19.2",
+        "chart": {
+            "name": "cert-manager",
+            "version": "1.19.2",
+        },
+        "name": "cert-manager",
+        "namespace": "testspace",
+        "revision": 7,
+        "status": "deployed",
+        "values": {
+            "crds": {"enabled": True},
+        },
     }
-    with patch.dict(helm.__salt__, mock_helm_modules):
-        ret = {
-            "name": "state_id",
-            "result": False,
-            "comment": "error",
-            "changes": {},
+
+    with (
+        patch.dict(helm.__opts__, {"test": test}),
+        patch.dict(
+            helm.__salt__,
+            {
+                "helm.get_current_revision": MagicMock(side_effect=[mock_release_revision_in, {}]),
+                "helm.uninstall_release": MagicMock(return_value=None),
+            },
+        ),
+    ):
+        res = helm.release_absent(
+            name="cert-manager",
+            namespace="testspace",
+        )
+
+        assert res["name"] == "cert-manager"
+        assert res["changes"] == {
+            "old": {
+                "name": "cert-manager",
+            },
+            "new": {
+                "name": None,
+            },
         }
-        assert helm.release_absent("state_id") == ret
+
+        if test:
+            assert res["result"] is None
+            assert res["comment"] == "Would uninstall release."
+
+        else:
+            assert res["result"] is True
+            assert res["comment"] == "Successfully uninstalled release."

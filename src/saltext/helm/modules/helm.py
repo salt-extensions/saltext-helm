@@ -1,1495 +1,342 @@
 """
-Interface with Helm
+Execution module for interfacing with Helm
 
-:depends: pyhelm_ Python package
+:depends: pyhelm3
+:platform: all
 
-.. _pyhelm: https://pypi.org/project/pyhelm/
+.. _pyhelm: https://github.com/azimuth-cloud/pyhelm3
+
+:configuration: The following options can optionally be defined in the minion configuration. They will be passed through to the pyhelm3 client instantiation.
+
+.. code-block:: yaml
+
+    # Path to the Kubernetes client configuration.
+    helm.kubeconfig: ...
+    # Reference to the Kubernetes client configuration context.
+    helm.kubecontext: ...
+    # Path to the Helm executable.
+    helm.executable: ...
 
 .. note::
-    This module use the helm-cli. The helm-cli binary have to be present in your Salt-Minion path.
-
-Helm-CLI vs Salt-Modules
-------------------------
-
-This module is a wrapper of the helm binary.
-All helm v3.0 command are implemented.
-
-To install a chart with the helm-cli:
-
-.. code-block:: bash
-
-    helm install grafana stable/grafana --wait --values /path/to/values.yaml
-
-
-To install a chart with the Salt-Module:
-
-.. code-block:: bash
-
-    salt '*' helm.install grafana stable/grafana values='/path/to/values.yaml' flags="['wait']"
-
-
-Detailed Function Documentation
--------------------------------
+    This module use the "helm" command line. The "helm" binary has to be present in the PATH defined in the environment the Salt Minion is running under.
+    Alternatively, a path to the binary can be defined in the minion configuration.
 """
 
-import copy
 import logging
-import re
-
-from salt.exceptions import CommandExecutionError
-from salt.serializers import json
+from asyncio import run
 
 log = logging.getLogger(__name__)
 
-# Don't shadow built-in's.
-__func_alias__ = {
-    "help_": "help",
-    "list_": "list",
-}
+try:
+    from pyhelm3 import Client
+    from pyhelm3.errors import Error
+    from pyhelm3.errors import ReleaseNotFoundError
+    from pyhelm3.models import Release
+    from pyhelm3.models import ReleaseRevision
+
+    HAS_PYHELM = True
+except ImportError:
+    HAS_PYHELM = False
 
 
-def _prepare_cmd(binary="helm", commands=None, flags=None, kvflags=None):
-    """
+def __virtual__():
+    if not HAS_PYHELM:
+        return (
+            False,
+            "The helm execution module cannot be loaded: the pyhelm3 library is not available.",
+        )
 
-    :param binary:
-    :param commands:
-    :param flags:
-    :param kvflags:
-    :return:
-    """
-    if commands is None:
-        commands = []
-    if flags is None:
-        flags = []
+    # by default, pyhelm will print all commands it executes as INFO, which is very noisy in normal operation
+    # pylint: disable=consider-using-in  # doesn't work here
+    if logging.root.level != logging.DEBUG and log.level != logging.DEBUG:
+        logging.getLogger("pyhelm3").setLevel(logging.WARN)
+
+    return "helm"
+
+
+def __init__(opts):
+    if not HAS_PYHELM:
+        return
+
+    global c  # pylint: disable=global-statement # needed to share for command line use
+
+    config = {}
+
+    for option in [
+        "kubeconfig",
+        "kubecontext",
+        "executable",
+    ]:
+        value = opts.get(f"helm.{option}")
+        if value is not None:
+            config[option] = value
+
+    c = Client(**config)
+
+
+# hack for tests as they don't invoke __init__ and __virtual__ like Salt does, is there a more proper way?
+c = None  # pylint: disable=invalid-name
+if c is None:
+    __init__({})
+
+
+async def _format_release(data, with_values=False):
+    if isinstance(data, Release):
+        release = data
+        revision = await release.current_revision()
+
+    elif isinstance(data, ReleaseRevision):
+        revision = data
+        release = revision.release
+
     else:
-        flags = copy.deepcopy(flags)
-    if kvflags is None:
-        kvflags = {}
-    else:
-        kvflags = copy.deepcopy(kvflags)
+        raise ValueError("Unsupported invocation.")
 
-    cmd = (binary,)
+    metadata = await revision.chart_metadata()
 
-    for command in commands:
-        cmd += (command,)
+    out = {
+        **release.model_dump(),
+        "status": revision.status.value,
+        "chart": {
+            "name": metadata.name,
+            "version": metadata.version,
+        },
+        "app_version": metadata.app_version,
+        "revision": revision.revision,
+    }
 
-    for arg in flags:
-        if not re.search(r"^--.*", arg):
-            arg = "--" + arg
-        cmd += (arg,)
+    if with_values:
+        out["values"] = await revision.values()
 
-    for key, val in kvflags.items():
-        if not re.search(r"^--.*", key):
-            key = "--" + key
-        if key == "--set" and isinstance(val, list):
-            for set_val in val:
-                cmd += (
-                    key,
-                    set_val,
-                )
-        else:
-            cmd += (
-                key,
-                val,
-            )
-
-    return cmd
+    return out
 
 
-def _exec_cmd(commands=None, flags=None, kvflags=None):
+async def _list_releases(**kwargs):
+    out = []
+
+    releases = await c.list_releases(**kwargs)
+
+    for release in releases:
+        out.append(await _format_release(release))
+
+    return out
+
+
+def list_releases(
+    all=False,
+    all_namespaces=False,
+    include_deployed=True,
+    include_failed=False,
+    include_pending=False,
+    include_superseded=False,
+    include_uninstalled=False,
+    include_uninstalling=False,
+    max_releases=256,
+    namespace=None,
+    sort_by_date=False,
+    sort_reversed=False,
+):
+    # pylint: disable=unused-argument
+    """
+    Query all installed releases.
+
+    :param all:
+    :param all_namespaces:
+    :param include_deployed:
+    :param include_failed:
+    :param include_pending:
+    :param include_superseded:
+    :param include_uninstalled:
+    :param include_uninstalling:
+    :param max_releases:
+    :param namespace:
+    :param sort_by_date:
+    :param sort_reversed:
+
+    :return: List of release dicts.
+
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt '*' helm.list_releases all_namespaces=True
     """
 
-    :param commands:
-    :param flags:
-    :param kvflags:
-    :return:
-    """
-    cmd = _prepare_cmd(commands=commands, flags=flags, kvflags=kvflags)
-    cmd_string = " ".join(cmd)
+    return run(_list_releases(**locals()))
+
+
+async def _get_current_revision(release_name, namespace, with_values):
+    out = {}
 
     try:
-        result = __salt__["cmd.run_all"](cmd=cmd)
-        result.update({"cmd": cmd_string})
-    except CommandExecutionError as err:
-        result = {"retcode": -1, "stdout": "", "stderr": err, "cmd": cmd_string}
-        log.error(result)
+        return await _format_release(
+            await c.get_current_revision(release_name, namespace=namespace), with_values
+        )
 
-    return result
+    except ReleaseNotFoundError:
+        return out
 
 
-def _exec_true_return(commands=None, flags=None, kvflags=None):
-    """
-
-    :param commands:
-    :param flags:
-    :param kvflags:
-    :return:
-    """
-    cmd_result = _exec_cmd(commands=commands, flags=flags, kvflags=kvflags)
-    if cmd_result.get("retcode", -1) == 0:
-        result = True
-    else:
-        result = cmd_result.get("stderr", "")
-    return result
-
-
-def _exec_string_return(commands=None, flags=None, kvflags=None):
-    """
-
-    :param commands:
-    :param flags:
-    :param kvflags:
-    :return:
-    """
-    cmd_result = _exec_cmd(commands=commands, flags=flags, kvflags=kvflags)
-    if cmd_result.get("retcode", -1) == 0:
-        result = cmd_result.get("stdout", "")
-    else:
-        result = cmd_result.get("stderr", "")
-    return result
-
-
-def _exec_dict_return(commands=None, flags=None, kvflags=None):
-    """
-
-    :param commands:
-    :param flags:
-    :param kvflags:
-    :return:
-    """
-    if kvflags is None:
-        kvflags = {}
-    if not ("output" in kvflags.keys() or "--output" in kvflags.keys()):
-        kvflags.update({"output": "json"})
-    cmd_result = _exec_cmd(commands=commands, flags=flags, kvflags=kvflags)
-    if cmd_result.get("retcode", -1) == 0:
-        if kvflags.get("output") == "json" or kvflags.get("--output") == "json":
-            result = json.deserialize(cmd_result.get("stdout", ""))
-        else:
-            result = cmd_result.get("stdout", "")
-    else:
-        result = cmd_result.get("stderr", "")
-    return result
-
-
-def completion(shell, flags=None, kvflags=None):
-    """
-    Generate auto-completions script for Helm for the specified shell (bash or zsh).
-    Return the shell auto-completion content.
-
-    shell
-        (string) One of ['bash', 'zsh'].
-
-    flags
-        (list) Flags in argument of the command without values. ex: ['help', '--help']
-
-    kvflags
-        (dict) Flags in argument of the command with values. ex: {'v': 2, '--v': 4}
-
-    CLI Example:
-
-    .. code-block:: bash
-
-        salt '*' helm.completion bash
-
-    """
-    return _exec_string_return(commands=["completion", shell], flags=flags, kvflags=kvflags)
-
-
-def create(name, flags=None, kvflags=None):
-    """
-    Creates a chart directory along with the common files and directories used in a chart.
-    Return True if succeed, else the error message.
-
-    name
-        (string) The chart name to create.
-
-    flags
-        (list) Flags in argument of the command without values. ex: ['help', '--help']
-
-    kvflags
-        (dict) Flags in argument of the command with values. ex: {'v': 2, '--v': 4}
-
-    CLI Example:
-
-    .. code-block:: bash
-
-        salt '*' helm.create NAME
-
-    """
-    return _exec_true_return(commands=["create", name], flags=flags, kvflags=kvflags)
-
-
-def dependency_build(chart, flags=None, kvflags=None):
-    """
-    Build out the charts/ directory from the Chart.lock file.
-    Return True if succeed, else the error message.
-
-    chart
-        (string) The chart name to build dependency.
-
-    flags
-        (list) Flags in argument of the command without values. ex: ['help', '--help']
-
-    kvflags
-        (dict) Flags in argument of the command with values. ex: {'v': 2, '--v': 4}
-
-    CLI Example:
-
-    .. code-block:: bash
-
-        salt '*' helm.dependency_build CHART
-
-    """
-    return _exec_true_return(commands=["dependency", "build", chart], flags=flags, kvflags=kvflags)
-
-
-def dependency_list(chart, flags=None, kvflags=None):
-    """
-    List all of the dependencies declared in a chart.
-    Return chart dependencies if succeed, else the error message.
-
-    chart
-        (string) The chart name to list dependency.
-
-    flags
-        (list) Flags in argument of the command without values. ex: ['help', '--help']
-
-    kvflags
-        (dict) Flags in argument of the command with values. ex: {'v': 2, '--v': 4}
-
-    CLI Example:
-
-    .. code-block:: bash
-
-        salt '*' helm.dependency_list CHART
-
-    """
-    return _exec_string_return(commands=["dependency", "list", chart], flags=flags, kvflags=kvflags)
-
-
-def dependency_update(chart, flags=None, kvflags=None):
-    """
-    Update the on-disk dependencies to mirror Chart.yaml.
-    Return True if succeed, else the error message.
-
-    chart
-        (string) The chart name to update dependency.
-
-    flags
-        (list) Flags in argument of the command without values. ex: ['help', '--help']
-
-    kvflags
-        (dict) Flags in argument of the command with values. ex: {'v': 2, '--v': 4}
-
-    CLI Example:
-
-    .. code-block:: bash
-
-        salt '*' helm.dependency_update CHART
-
-    """
-    return _exec_true_return(commands=["dependency", "update", chart], flags=flags, kvflags=kvflags)
-
-
-def env(flags=None, kvflags=None):
-    """
-    Prints out all the environment information in use by Helm.
-    Return Helm environments variables if succeed, else the error message.
-
-    flags
-        (list) Flags in argument of the command without values. ex: ['help', '--help']
-
-    kvflags
-        (dict) Flags in argument of the command with values. ex: {'v': 2, '--v': 4}
-
-    CLI Example:
-
-    .. code-block:: bash
-
-        salt '*' helm.env
-
-    """
-    return _exec_string_return(commands=["env"], flags=flags, kvflags=kvflags)
-
-
-def get_all(release, flags=None, kvflags=None):
-    """
-    Prints a human readable collection of information about the notes, hooks, supplied values, and generated manifest file of the given release.
-    Return release information if succeed, else the error message.
-
-    release
-        (string) Release name to get information from.
-
-    flags
-        (list) Flags in argument of the command without values. ex: ['help', '--help']
-
-    kvflags
-        (dict) Flags in argument of the command with values. ex: {'v': 2, '--v': 4}
-
-    CLI Example:
-
-    .. code-block:: bash
-
-        salt '*' helm.get_all RELEASE
-
-    """
-    return _exec_string_return(commands=["get", "all", release], flags=flags, kvflags=kvflags)
-
-
-def get_hooks(release, flags=None, kvflags=None):
-    """
-    Prints a human readable collection of information about the hooks of the given release.
-    Return release hooks information if succeed, else the error message.
-
-    release
-        (string) Release name to get hooks information from.
-
-    flags
-        (list) Flags in argument of the command without values. ex: ['help', '--help']
-
-    kvflags
-        (dict) Flags in argument of the command with values. ex: {'v': 2, '--v': 4}
-
-    CLI Example:
-
-    .. code-block:: bash
-
-        salt '*' helm.get_hooks RELEASE
-
-    """
-    return _exec_string_return(commands=["get", "hooks", release], flags=flags, kvflags=kvflags)
-
-
-def get_manifest(release, flags=None, kvflags=None):
-    """
-    Prints a human readable collection of information about the manifest of the given release.
-    Return release manifest information if succeed, else the error message.
-
-    release
-        (string) Release name to get manifest information from.
-
-    flags
-        (list) Flags in argument of the command without values. ex: ['help', '--help']
-
-    kvflags
-        (dict) Flags in argument of the command with values. ex: {'v': 2, '--v': 4}
-
-    CLI Example:
-
-    .. code-block:: bash
-
-        salt '*' helm.get_manifest RELEASE
-
-    """
-    return _exec_string_return(commands=["get", "manifest", release], flags=flags, kvflags=kvflags)
-
-
-def get_notes(release, flags=None, kvflags=None):
-    """
-    Prints a human readable collection of information about the notes of the given release.
-    Return release notes information if succeed, else the error message.
-
-    release
-        (string) Release name to get notes information from.
-
-    flags
-        (list) Flags in argument of the command without values. ex: ['help', '--help']
-
-    kvflags
-        (dict) Flags in argument of the command with values. ex: {'v': 2, '--v': 4}
-
-    CLI Example:
-
-    .. code-block:: bash
-
-        salt '*' helm.get_notes RELEASE
-
-    """
-    return _exec_string_return(commands=["get", "notes", release], flags=flags, kvflags=kvflags)
-
-
-def get_values(release, flags=None, kvflags=None):
-    """
-    Prints a human readable collection of information about the values of the given release.
-    Return release values information if succeed, else the error message.
-
-    release
-        (string) Release name to get values information from.
-
-    flags
-        (list) Flags in argument of the command without values. ex: ['help', '--help']
-
-    kvflags
-        (dict) Flags in argument of the command with values. ex: {'v': 2, '--v': 4}
-
-    CLI Example:
-
-    .. code-block:: bash
-
-        salt '*' helm.get_values RELEASE
-
-        # In YAML format
-        salt '*' helm.get_values RELEASE kvflags="{'output': 'yaml'}"
-
-    """
-    return _exec_dict_return(commands=["get", "values", release], flags=flags, kvflags=kvflags)
-
-
-def help_(command, flags=None, kvflags=None):
-    """
-    Provides help for any command in the application.
-    Return the full help if succeed, else the error message.
-
-    command
-        (string) Command to get help. ex: 'get'
-
-    flags
-        (list) Flags in argument of the command without values. ex: ['help', '--help']
-
-    kvflags
-        (dict) Flags in argument of the command with values. ex: {'v': 2, '--v': 4}
-
-    CLI Example:
-
-    .. code-block:: bash
-
-        salt '*' helm.help COMMAND
-
-    """
-    return _exec_string_return(commands=["help", command], flags=flags, kvflags=kvflags)
-
-
-def history(release, flags=None, kvflags=None):
-    """
-    Prints historical revisions for a given release.
-    Return release historic if succeed, else the error message.
-
-    release
-        (string) Release name to get history from.
-
-    flags
-        (list) Flags in argument of the command without values. ex: ['help', '--help']
-
-    kvflags
-        (dict) Flags in argument of the command with values. ex: {'v': 2, '--v': 4}
-
-    CLI Example:
-
-    .. code-block:: bash
-
-        salt '*' helm.history RELEASE
-
-        # In YAML format
-        salt '*' helm.history RELEASE kvflags="{'output': 'yaml'}"
-
-    """
-    return _exec_dict_return(commands=["history", release], flags=flags, kvflags=kvflags)
-
-
-def install(
-    release,
-    chart,
-    values=None,
-    version=None,
+def get_current_revision(
+    release_name,
     namespace=None,
-    set=None,
-    flags=None,
-    kvflags=None,
+    with_values=False,
 ):
     """
-    Installs a chart archive.
-    Return True if succeed, else the error message.
+    Query a single installed release.
 
-    release
-        (string) Release name to get values information from.
+    :param release_name:
+    :param namespace:
+    :param with_values: Whether to include a dict of user values.
 
-    chart
-        (string) Chart name to install.
-
-    values
-        (string) Absolute path to the values.yaml file.
-
-    version
-        (string) The exact chart version to install. If this is not specified, the latest version is installed.
-
-    namespace
-        (string) The namespace scope for this request.
-
-    set
-        (string or list) Set a values on the command line.
-
-    flags
-        (list) Flags in argument of the command without values. ex: ['help', '--help']
-
-    kvflags
-        (dict) Flags in argument of the command with values. ex: {'v': 2, '--v': 4}
+    :return: A dict with information about the installed the release, or an empty dict if nothing matched the given name.
 
     CLI Example:
 
     .. code-block:: bash
 
-        salt '*' helm.install RELEASE CHART
-
-        # With values file.
-        salt '*' helm.install RELEASE CHART values='/path/to/values.yaml'
-
+        salt '*' helm.get_current_revision cert-manager
     """
-    if values:
-        if kvflags:
-            kvflags.update({"values": values})
-        else:
-            kvflags = {"values": values}
-    if version:
-        if kvflags:
-            kvflags.update({"version": version})
-        else:
-            kvflags = {"version": version}
-    if namespace:
-        if kvflags:
-            kvflags.update({"namespace": namespace})
-        else:
-            kvflags = {"namespace": namespace}
-    if set:
-        if kvflags:
-            kvflags.update({"set": set})
-        else:
-            kvflags = {"set": set}
-    return _exec_true_return(commands=["install", release, chart], flags=flags, kvflags=kvflags)
+
+    return run(_get_current_revision(release_name, namespace, with_values))
 
 
-def lint(path, values=None, namespace=None, set=None, flags=None, kvflags=None):
+async def _get_chart(name, version, as_obj):
+    try:
+        chart = await c.get_chart(name, version=version)
+
+        # for use in the state module
+        if as_obj:
+            return chart
+
+        # for use on the command line
+        return chart.model_dump()
+
+    except Error as err:
+        return {"error": err}
+
+
+def get_chart(name, version=None, as_obj=False):
     """
-    Takes a path to a chart and runs a series of tests to verify that the chart is well-formed.
-    Return True if succeed, else the error message.
+    Query a chart.
 
-    path
-        (string) The path to the chart to lint.
+    :param name: Either an OCI URL or a repository/name reference.
+    :param version: Optionally, a specific version to retrieve.
+    :param as_obj: Whether to return the Chart() model instead of a dict. This will not work on the command line.
 
-    values
-        (string) Absolute path to the values.yaml file.
-
-    namespace
-        (string) The namespace scope for this request.
-
-    set
-        (string or list) Set a values on the command line.
-
-    flags
-        (list) Flags in argument of the command without values. ex: ['help', '--help']
-
-    kvflags
-        (dict) Flags in argument of the command with values. ex: {'v': 2, '--v': 4}
+    :return: A dict with information about the chart, or a Chart object if as_obj is set to True.
 
     CLI Example:
 
     .. code-block:: bash
 
-        salt '*' helm.lint PATH
-
+        salt '*' helm.get_chart oci://dp.apps.rancher.io/charts/cert-manager 1.19.1
     """
-    if values:
-        if kvflags:
-            kvflags.update({"values": values})
-        else:
-            kvflags = {"values": values}
-    if namespace:
-        if kvflags:
-            kvflags.update({"namespace": namespace})
-        else:
-            kvflags = {"namespace": namespace}
-    if set:
-        if kvflags:
-            kvflags.update({"set": set})
-        else:
-            kvflags = {"set": set}
-    return _exec_true_return(commands=["lint", path], flags=flags, kvflags=kvflags)
 
+    return run(_get_chart(name, version, as_obj))
 
-def list_(namespace=None, flags=None, kvflags=None):
-    """
-    Lists all of the releases. By default, it lists only releases that are deployed or failed.
-    Return the list of release if succeed, else the error message.
 
-    namespace
-        (string) The namespace scope for this request.
+async def _install_or_upgrade_release(*args, **kwargs):
+    try:
+        return await c.install_or_upgrade_release(*args, **kwargs)
 
-    flags
-        (list) Flags in argument of the command without values. ex: ['help', '--help']
+    except Error as err:
+        return {"error": err}
 
-    kvflags
-        (dict) Flags in argument of the command with values. ex: {'v': 2, '--v': 4}
 
-    CLI Example:
-
-    .. code-block:: bash
-
-        salt '*' helm.list
-
-        # In YAML format
-        salt '*' helm.list kvflags="{'output': 'yaml'}"
-
-    """
-    if namespace:
-        if kvflags:
-            kvflags.update({"namespace": namespace})
-        else:
-            kvflags = {"namespace": namespace}
-    return _exec_dict_return(commands=["list"], flags=flags, kvflags=kvflags)
-
-
-def package(chart, flags=None, kvflags=None):
-    """
-    Packages a chart into a versioned chart archive file. If a path is given, this will look at that path for a chart
-    (which must contain a Chart.yaml file) and then package that directory.
-    Return True if succeed, else the error message.
-
-    chart
-        (string) Chart name to package. Can be an absolute path.
-
-    flags
-        (list) Flags in argument of the command without values. ex: ['help', '--help']
-
-    kvflags
-        (dict) Flags in argument of the command with values. ex: {'v': 2, '--v': 4}
-
-    CLI Example:
-
-    .. code-block:: bash
-
-        salt '*' helm.package CHART
-
-        # With destination path.
-        salt '*' helm.package CHART kvflags="{'destination': '/path/to/the/package'}"
-
-    """
-    return _exec_true_return(commands=["package", chart], flags=flags, kvflags=kvflags)
-
-
-def plugin_install(path, flags=None, kvflags=None):
-    """
-    Install a Helm plugin from a url to a VCS repo or a local path.
-    Return True if succeed, else the error message.
-
-    path
-        (string) Path to the local plugin. Can be an url.
-
-    flags
-        (list) Flags in argument of the command without values. ex: ['help', '--help']
-
-    kvflags
-        (dict) Flags in argument of the command with values. ex: {'v': 2, '--v': 4}
-
-    CLI Example:
-
-    .. code-block:: bash
-
-        salt '*' helm.plugin_install PATH
-
-    """
-    return _exec_true_return(commands=["plugin", "install", path], flags=flags, kvflags=kvflags)
-
-
-def plugin_list(flags=None, kvflags=None):
-    """
-    List installed Helm plugins.
-    Return the plugin list if succeed, else the error message.
-
-    flags
-        (list) Flags in argument of the command without values. ex: ['help', '--help']
-
-    kvflags
-        (dict) Flags in argument of the command with values. ex: {'v': 2, '--v': 4}
-
-    CLI Example:
-
-    .. code-block:: bash
-
-        salt '*' helm.plugin_list
-
-    """
-    return _exec_string_return(commands=["plugin", "list"], flags=flags, kvflags=kvflags)
-
-
-def plugin_uninstall(plugin, flags=None, kvflags=None):
-    """
-    Uninstall a Helm plugin.
-    Return True if succeed, else the error message.
-
-    plugin
-        (string) The plugin to uninstall.
-
-    flags
-        (list) Flags in argument of the command without values. ex: ['help', '--help']
-
-    kvflags
-        (dict) Flags in argument of the command with values. ex: {'v': 2, '--v': 4}
-
-    CLI Example:
-
-    .. code-block:: bash
-
-        salt '*' helm.plugin_uninstall PLUGIN
-
-    """
-    return _exec_true_return(commands=["plugin", "uninstall", plugin], flags=flags, kvflags=kvflags)
-
-
-def plugin_update(plugin, flags=None, kvflags=None):
-    """
-    Update a Helm plugin.
-    Return True if succeed, else the error message.
-
-    plugin
-        (string) The plugin to update.
-
-    flags
-        (list) Flags in argument of the command without values. ex: ['help', '--help']
-
-    kvflags
-        (dict) Flags in argument of the command with values. ex: {'v': 2, '--v': 4}
-
-    CLI Example:
-
-    .. code-block:: bash
-
-        salt '*' helm.plugin_update PLUGIN
-
-    """
-    return _exec_true_return(commands=["plugin", "update", plugin], flags=flags, kvflags=kvflags)
-
-
-def pull(pkg, flags=None, kvflags=None):
-    """
-    Retrieve a package from a package repository, and download it locally.
-    Return True if succeed, else the error message.
-
-    pkg
-        (string) The package to pull. Can be url or repo/chartname.
-
-    flags
-        (list) Flags in argument of the command without values. ex: ['help', '--help']
-
-    kvflags
-        (dict) Flags in argument of the command with values. ex: {'v': 2, '--v': 4}
-
-    CLI Example:
-
-    .. code-block:: bash
-
-        salt '*' helm.pull PKG
-
-        # With destination path to write the chart.
-        salt '*' helm.pull PKG kvflags="{'destination': '/path/to/the/chart'}"
-
-    """
-    return _exec_true_return(commands=["pull", pkg], flags=flags, kvflags=kvflags)
-
-
-def repo_add(name, url, namespace=None, flags=None, kvflags=None):
-    """
-    Add a chart repository.
-    Return True if succeed, else the error message.
-
-    name
-        (string) The local name of the repository to install. Have to be unique.
-
-    url
-        (string) The url to the repository.
-
-    namespace
-        (string) The namespace scope for this request.
-
-    flags
-        (list) Flags in argument of the command without values. ex: ['help', '--help']
-
-    kvflags
-        (dict) Flags in argument of the command with values. ex: {'v': 2, '--v': 4}
-
-    CLI Example:
-
-    .. code-block:: bash
-
-        salt '*' helm.repo_add NAME URL
-
-    """
-    if namespace:
-        if kvflags:
-            kvflags.update({"namespace": namespace})
-        else:
-            kvflags = {"namespace": namespace}
-    return _exec_true_return(commands=["repo", "add", name, url], flags=flags, kvflags=kvflags)
-
-
-def repo_index(directory, namespace=None, flags=None, kvflags=None):
-    """
-    Read the current directory and generate an index file based on the charts found.
-    Return True if succeed, else the error message.
-
-    directory
-        (string) The path to the index.
-
-    namespace
-        (string) The namespace scope for this request.
-
-    flags
-        (list) Flags in argument of the command without values. ex: ['help', '--help']
-
-    kvflags
-        (dict) Flags in argument of the command with values. ex: {'v': 2, '--v': 4}
-
-    CLI Example:
-
-    .. code-block:: bash
-
-        salt '*' helm.index DIRECTORY
-
-    """
-    if namespace:
-        if kvflags:
-            kvflags.update({"namespace": namespace})
-        else:
-            kvflags = {"namespace": namespace}
-    return _exec_true_return(commands=["repo", "index", directory], flags=flags, kvflags=kvflags)
-
-
-def repo_list(namespace=None, flags=None, kvflags=None):
-    """
-    List a chart repository.
-    Return the repository list if succeed, else the error message.
-
-    namespace
-        (string) The namespace scope for this request.
-
-    flags
-        (list) Flags in argument of the command without values. ex: ['help', '--help']
-
-    kvflags
-        (dict) Flags in argument of the command with values. ex: {'v': 2, '--v': 4}
-
-    CLI Example:
-
-    .. code-block:: bash
-
-        salt '*' helm.repo_list
-
-        # In YAML format
-        salt '*' helm.repo_list kvflags="{'output': 'yaml'}"
-
-    """
-    if namespace:
-        if kvflags:
-            kvflags.update({"namespace": namespace})
-        else:
-            kvflags = {"namespace": namespace}
-    return _exec_dict_return(commands=["repo", "list"], flags=flags, kvflags=kvflags)
-
-
-def repo_remove(name, namespace=None, flags=None, kvflags=None):
-    """
-    Remove a chart repository.
-    Return True if succeed, else the error message.
-
-    name
-        (string) The local name of the repository to remove.
-
-    namespace
-        (string) The namespace scope for this request.
-
-    flags
-        (list) Flags in argument of the command without values. ex: ['help', '--help']
-
-    kvflags
-        (dict) Flags in argument of the command with values. ex: {'v': 2, '--v': 4}
-
-    CLI Example:
-
-    .. code-block:: bash
-
-        salt '*' helm.repo_remove NAME
-
-    """
-    if namespace:
-        if kvflags:
-            kvflags.update({"namespace": namespace})
-        else:
-            kvflags = {"namespace": namespace}
-    return _exec_true_return(commands=["repo", "remove", name], flags=flags, kvflags=kvflags)
-
-
-def repo_update(namespace=None, flags=None, kvflags=None):
-    """
-    Update all charts repository.
-    Return True if succeed, else the error message.
-
-    namespace
-        (string) The namespace scope for this request.
-
-    flags
-        (list) Flags in argument of the command without values. ex: ['help', '--help']
-
-    kvflags
-        (dict) Flags in argument of the command with values. ex: {'v': 2, '--v': 4}
-
-    CLI Example:
-
-    .. code-block:: bash
-
-        salt '*' helm.repo_update
-
-    """
-    if namespace:
-        if kvflags:
-            kvflags.update({"namespace": namespace})
-        else:
-            kvflags = {"namespace": namespace}
-    return _exec_true_return(commands=["repo", "update"], flags=flags, kvflags=kvflags)
-
-
-def repo_manage(present=None, absent=None, prune=False, namespace=None, flags=None, kvflags=None):
-    """
-    Manage charts repository.
-    Return the summery of all actions.
-
-    present
-        (list) List of repository to be present. It's a list of dict: [{'name': 'local_name', 'url': 'repository_url'}]
-
-    absent
-        (list) List of local name repository to be absent.
-
-    prune
-        (boolean - default: False) If True, all repository already present but not in the present list would be removed.
-
-    namespace
-        (string) The namespace scope for this request.
-
-    flags
-        (list) Flags in argument of the command without values. ex: ['help', '--help']
-
-    kvflags
-        (dict) Flags in argument of the command with values. ex: {'v': 2, '--v': 4}
-
-    CLI Example:
-
-    .. code-block:: bash
-
-        salt '*' helm.repo_manage present="[{'name': 'LOCAL_NAME', 'url': 'REPO_URL'}]" absent="['LOCAL_NAME']"
-
-    """
-    if present is None:
-        present = []
-    else:
-        present = copy.deepcopy(present)
-    if absent is None:
-        absent = []
-    else:
-        absent = copy.deepcopy(absent)
-    if namespace:
-        if kvflags:
-            kvflags.update({"namespace": namespace})
-        else:
-            kvflags = {"namespace": namespace}
-
-    repos_present = repo_list(namespace=namespace, flags=flags, kvflags=kvflags)
-    if not isinstance(repos_present, list):
-        repos_present = []
-    result = {"present": [], "added": [], "absent": [], "removed": [], "failed": []}
-
-    for repo in present:
-        if not (isinstance(repo, dict) and "name" in repo.keys() and "url" in repo.keys()):
-            raise CommandExecutionError(
-                "Parameter present have to be formatted like "
-                "[{'name': '<myRepoName>', 'url': '<myRepoUrl>'}]"
-            )
-
-        already_present = False
-        for index, repo_present in enumerate(repos_present):
-            if repo.get("name") == repo_present.get("name") and repo.get("url") == repo_present.get(
-                "url"
-            ):
-                result["present"].append(repo)
-                repos_present.pop(index)
-                already_present = True
-                break
-
-        if not already_present:
-            repo_add_status = repo_add(
-                repo.get("name"),
-                repo.get("url"),
-                namespace=namespace,
-                flags=flags,
-                kvflags=kvflags,
-            )
-            if isinstance(repo_add_status, bool) and repo_add_status:
-                result["added"].append(repo)
-            else:
-                result["failed"].append(repo)
-
-    for repo in repos_present:
-        if prune:
-            absent.append(repo.get("name"))
-        elif not repo.get("name") in absent:
-            result["present"].append(repo)
-
-    for name in absent:
-        remove_status = repo_remove(name, namespace=namespace)
-        if isinstance(remove_status, bool) and remove_status:
-            result["removed"].append(name)
-        else:
-            result["absent"].append(name)
-
-    return result
-
-
-def rollback(release, revision, namespace=None, flags=None, kvflags=None):
-    """
-    Rolls back a release to a previous revision.
-    To see release revision number, execute the history module.
-    Return True if succeed, else the error message.
-
-    release
-        (string) The name of the release to managed.
-
-    revision
-        (string) The revision number to roll back to.
-
-    namespace
-        (string) The namespace scope for this request.
-
-    flags
-        (list) Flags in argument of the command without values. ex: ['help', '--help']
-
-    kvflags
-        (dict) Flags in argument of the command with values. ex: {'v': 2, '--v': 4}
-
-    CLI Example:
-
-    .. code-block:: bash
-
-        salt '*' helm.rollback RELEASE REVISION
-
-        # In dry-run mode.
-        salt '*' helm.rollback RELEASE REVISION flags=['dry-run']
-
-    """
-    if namespace:
-        if kvflags:
-            kvflags.update({"namespace": namespace})
-        else:
-            kvflags = {"namespace": namespace}
-    return _exec_true_return(commands=["rollback", release, revision], flags=flags, kvflags=kvflags)
-
-
-def search_hub(keyword, flags=None, kvflags=None):
-    """
-    Search the Helm Hub or an instance of Monocular for Helm charts.
-    Return the research result if succeed, else the error message.
-
-    keyword
-        (string) The keyword to search in the hub.
-
-    flags
-        (list) Flags in argument of the command without values. ex: ['help', '--help']
-
-    kvflags
-        (dict) Flags in argument of the command with values. ex: {'v': 2, '--v': 4}
-
-    CLI Example:
-
-    .. code-block:: bash
-
-        salt '*' helm.search_hub KEYWORD
-
-        # In YAML format
-        salt '*' helm.search_hub KEYWORD kvflags="{'output': 'yaml'}"
-
-    """
-    return _exec_dict_return(commands=["search", "hub", keyword], flags=flags, kvflags=kvflags)
-
-
-def search_repo(keyword, flags=None, kvflags=None):
-    """
-    Search reads through all of the repositories configured on the system, and looks for matches. Search of these
-    repositories uses the metadata stored on the system.
-    Return the research result if succeed, else the error message.
-
-    keyword
-        (string) The keyword to search in the repo.
-
-    flags
-        (list) Flags in argument of the command without values. ex: ['help', '--help']
-
-    kvflags
-        (dict) Flags in argument of the command with values. ex: {'v': 2, '--v': 4}
-
-    CLI Example:
-
-    .. code-block:: bash
-
-        salt '*' helm.search_hub KEYWORD
-
-        # In YAML format
-        salt '*' helm.search_hub KEYWORD kvflags="{'output': 'yaml'}"
-
-    """
-    return _exec_dict_return(commands=["search", "repo", keyword], flags=flags, kvflags=kvflags)
-
-
-def show_all(chart, flags=None, kvflags=None):
-    """
-    Inspects a chart (directory, file, or URL) and displays all its content (values.yaml, Charts.yaml, README).
-    Return chart information if succeed, else the error message.
-
-    chart
-        (string) The chart to inspect.
-
-    flags
-        (list) Flags in argument of the command without values. ex: ['help', '--help']
-
-    kvflags
-        (dict) Flags in argument of the command with values. ex: {'v': 2, '--v': 4}
-
-    CLI Example:
-
-    .. code-block:: bash
-
-        salt '*' helm.show_all CHART
-
-    """
-    return _exec_string_return(commands=["show", "all", chart], flags=flags, kvflags=kvflags)
-
-
-def show_chart(chart, flags=None, kvflags=None):
-    """
-    Inspects a chart (directory, file, or URL) and displays the contents of the Charts.yaml file.
-    Return chart information if succeed, else the error message.
-
-    chart
-        (string) The chart to inspect.
-
-    flags
-        (list) Flags in argument of the command without values. ex: ['help', '--help']
-
-    kvflags
-        (dict) Flags in argument of the command with values. ex: {'v': 2, '--v': 4}
-
-    CLI Example:
-
-    .. code-block:: bash
-
-        salt '*' helm.show_chart CHART
-
-    """
-    return _exec_string_return(commands=["show", "chart", chart], flags=flags, kvflags=kvflags)
-
-
-def show_readme(chart, flags=None, kvflags=None):
-    """
-    Inspects a chart (directory, file, or URL) and displays the contents of the README file.
-    Return chart information if succeed, else the error message.
-
-    chart
-        (string) The chart to inspect.
-
-    flags
-        (list) Flags in argument of the command without values. ex: ['help', '--help']
-
-    kvflags
-        (dict) Flags in argument of the command with values. ex: {'v': 2, '--v': 4}
-
-    CLI Example:
-
-    .. code-block:: bash
-
-        salt '*' helm.show_readme CHART
-
-    """
-    return _exec_string_return(commands=["show", "readme", chart], flags=flags, kvflags=kvflags)
-
-
-def show_values(chart, flags=None, kvflags=None):
-    """
-    Inspects a chart (directory, file, or URL) and displays the contents of the values.yaml file.
-    Return chart information if succeed, else the error message.
-
-    chart
-        (string) The chart to inspect.
-
-    flags
-        (list) Flags in argument of the command without values. ex: ['help', '--help']
-
-    kvflags
-        (dict) Flags in argument of the command with values. ex: {'v': 2, '--v': 4}
-
-    CLI Example:
-
-    .. code-block:: bash
-
-        salt '*' helm.show_values CHART
-
-    """
-    return _exec_string_return(commands=["show", "values", chart], flags=flags, kvflags=kvflags)
-
-
-def status(release, namespace=None, flags=None, kvflags=None):
-    """
-    Show the status of the release.
-    Return the release status if succeed, else the error message.
-
-    release
-        (string) The release to status.
-
-    namespace
-        (string) The namespace scope for this request.
-
-    flags
-        (list) Flags in argument of the command without values. ex: ['help', '--help']
-
-    kvflags
-        (dict) Flags in argument of the command with values. ex: {'v': 2, '--v': 4}
-
-    CLI Example:
-
-    .. code-block:: bash
-
-        salt '*' helm.status RELEASE
-
-        # In YAML format
-        salt '*' helm.status RELEASE kvflags="{'output': 'yaml'}"
-
-    """
-    if namespace:
-        if kvflags:
-            kvflags.update({"namespace": namespace})
-        else:
-            kvflags = {"namespace": namespace}
-    return _exec_dict_return(commands=["status", release], flags=flags, kvflags=kvflags)
-
-
-def template(name, chart, values=None, output_dir=None, set=None, flags=None, kvflags=None):
-    """
-    Render chart templates locally and display the output.
-    Return the chart renderer if succeed, else the error message.
-
-    name
-        (string) The template name.
-
-    chart
-        (string) The chart to template.
-
-    values
-        (string) Absolute path to the values.yaml file.
-
-    output_dir
-        (string) Absolute path to the output directory.
-
-    set
-        (string or list) Set a values on the command line.
-
-    flags
-        (list) Flags in argument of the command without values. ex: ['help', '--help']
-
-    kvflags
-        (dict) Flags in argument of the command with values. ex: {'v': 2, '--v': 4}
-
-    CLI Example:
-
-    .. code-block:: bash
-
-        salt '*' helm.template NAME CHART
-
-        # With values file.
-        salt '*' helm.template NAME CHART values='/path/to/values.yaml' output_dir='path/to/output/dir'
-
-    """
-    if values:
-        if kvflags:
-            kvflags.update({"values": values})
-        else:
-            kvflags = {"values": values}
-    if set:
-        if kvflags:
-            kvflags.update({"set": set})
-        else:
-            kvflags = {"set": set}
-    if output_dir:
-        kvflags.update({"output-dir": output_dir})
-    return _exec_string_return(commands=["template", name, chart], flags=flags, kvflags=kvflags)
-
-
-def test(release, flags=None, kvflags=None):
-    """
-    Runs the tests for a release.
-    Return the test result if succeed, else the error message.
-
-    release
-        (string) The release name to test.
-
-    flags
-        (list) Flags in argument of the command without values. ex: ['help', '--help']
-
-    kvflags
-        (dict) Flags in argument of the command with values. ex: {'v': 2, '--v': 4}
-
-    CLI Example:
-
-    .. code-block:: bash
-
-        salt '*' helm.test RELEASE
-
-    """
-    return _exec_string_return(commands=["test", release], flags=flags, kvflags=kvflags)
-
-
-def uninstall(release, namespace=None, flags=None, kvflags=None):
-    """
-    Uninstall the release name.
-    Return True if succeed, else the error message.
-
-    release
-        (string) The name of the release to managed.
-
-    namespace
-        (string) The namespace scope for this request.
-
-    flags
-        (list) Flags in argument of the command without values. ex: ['help', '--help']
-
-    kvflags
-        (dict) Flags in argument of the command with values. ex: {'v': 2, '--v': 4}
-
-    CLI Example:
-
-    .. code-block:: bash
-
-        salt '*' helm.uninstall RELEASE
-
-        # In dry-run mode.
-        salt '*' helm.uninstall RELEASE flags=['dry-run']
-
-    """
-    if namespace:
-        if kvflags:
-            kvflags.update({"namespace": namespace})
-        else:
-            kvflags = {"namespace": namespace}
-    return _exec_true_return(commands=["uninstall", release], flags=flags, kvflags=kvflags)
-
-
-def upgrade(
-    release,
+def install_or_upgrade_release(
+    release_name,
     chart,
     values=None,
-    version=None,
+    atomic=False,
+    cleanup_on_fail=False,
+    create_namespace=True,
+    description=None,
+    dry_run=False,
+    force=False,
     namespace=None,
-    set=None,
-    flags=None,
-    kvflags=None,
+    no_hooks=False,
+    reset_values=False,
+    reuse_values=False,
+    skip_crds=False,
+    timeout=None,
+    wait=False,
+    disable_validation=False,
 ):
+    # pylint: disable=unused-argument
     """
-    Upgrades a release to a new version of a chart.
-    Return True if succeed, else the error message.
+    Install or upgrade a release.
 
-    release
-        (string) The name of the release to managed.
+    :param release_name:
+    :param chart: Either a Chart object, a OCI URL, or a repository/name reference.
+    :param values: Dict of user values.
+    :param atomic:
+    :param cleanup_on_fail:
+    :param create_namespace:
+    :param description:
+    :param dry_run:
+    :param force:
+    :param namespace:
+    :param no_hooks:
+    :param reset_values:
+    :param reuse_values:
+    :param skip_crds:
+    :param timeout:
+    :param wait:
+    :param disable_validation:
 
-    chart
-        (string) The chart to managed.
-
-    values
-        (string) Absolute path to the values.yaml file.
-
-    version
-        (string) The exact chart version to install. If this is not specified, the latest version is installed.
-
-    namespace
-        (string) The namespace scope for this request.
-
-    set
-        (string or list) Set a values on the command line.
-
-    flags
-        (list) Flags in argument of the command without values. ex: ['help', '--help']
-
-    kvflags
-        (dict) Flags in argument of the command with values. ex: {'v': 2, '--v': 4}
+    :return: A ReleaseRevision object on success, or, in case of an exception, a dict containing an "error" key with the error message as the value.
 
     CLI Example:
 
     .. code-block:: bash
 
-        salt '*' helm.upgrade RELEASE CHART
-
-        # In dry-run mode.
-        salt '*' helm.upgrade RELEASE CHART flags=['dry-run']
-
-        # With values file.
-        salt '*' helm.upgrade RELEASE CHART values='/path/to/values.yaml'
-
+        salt '*' helm.install_or_upgrade_release my-cert-manager chart=oci://dp.apps.rancher.io/charts/cert-manager namespace=myspace
     """
-    if values:
-        if kvflags:
-            kvflags.update({"values": values})
-        else:
-            kvflags = {"values": values}
-    if version:
-        if kvflags:
-            kvflags.update({"version": version})
-        else:
-            kvflags = {"version": version}
-    if namespace:
-        if kvflags:
-            kvflags.update({"namespace": namespace})
-        else:
-            kvflags = {"namespace": namespace}
-    if set:
-        if kvflags:
-            kvflags.update({"set": set})
-        else:
-            kvflags = {"set": set}
-    return _exec_true_return(commands=["upgrade", release, chart], flags=flags, kvflags=kvflags)
+
+    l = locals()
+    release_name = l.pop("release_name")
+    chart = l.pop("chart")
+    values = l.pop("values")
+
+    if isinstance(chart, str):
+        chart = get_chart(chart, as_obj=True)
+
+    return run(_install_or_upgrade_release(release_name, chart, values, **l))
 
 
-def verify(path, flags=None, kvflags=None):
+async def _uninstall_release(**kwargs):
+    return await c.uninstall_release(**kwargs)
+
+
+def uninstall_release(
+    release_name,
+    dry_run=False,
+    keep_history=False,
+    namespace=None,
+    no_hooks=False,
+    timeout=None,
+    wait=False,
+):
+    # pylint: disable=unused-argument
     """
-    Verify that the given chart has a valid provenance file.
-    Return True if succeed, else the error message.
+    Uninstall a release.
 
-    path
-        (string) The path to the chart file.
+    :param release_name:
+    :param dry_run:
+    :param keep_history:
+    :param namespace:
+    :param no_hooks:
+    :param timeout:
+    :param wait:
 
-    flags
-        (list) Flags in argument of the command without values. ex: ['help', '--help']
-
-    kvflags
-        (dict) Flags in argument of the command with values. ex: {'v': 2, '--v': 4}
+    :return: None
 
     CLI Example:
 
     .. code-block:: bash
 
-        salt '*' helm.verify PATH
-
+        salt '*' helm.uninstall_release my-cert-manager namespace=myspace
     """
-    return _exec_true_return(commands=["verify", path], flags=flags, kvflags=kvflags)
 
-
-def version(flags=None, kvflags=None):
-    """
-    Show the version for Helm.
-    Return version information if succeed, else the error message.
-
-    flags
-        (list) Flags in argument of the command without values. ex: ['help', '--help']
-
-    kvflags
-        (dict) Flags in argument of the command with values. ex: {'v': 2, '--v': 4}
-
-    CLI Example:
-
-    .. code-block:: bash
-
-        salt '*' helm.version
-
-    """
-    return _exec_string_return(commands=["version"], flags=flags, kvflags=kvflags)
+    return run(_uninstall_release(**locals()))

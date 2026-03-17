@@ -1,616 +1,110 @@
-"""
-Test cases for saltext.helm.modules.helm
-"""
-
-from unittest.mock import MagicMock
-from unittest.mock import call
 from unittest.mock import patch
 
+import pyhelm3  # pylint: disable=import-error  # works under nox
 import pytest
-from salt.exceptions import CommandExecutionError
 
 from saltext.helm.modules import helm
 
+RELEASE = {
+    "name": "cert-manager",
+    "app_version": "1.19.2",
+    "namespace": "default",
+    "revision": 5,
+    "status": "deployed",
+    "chart": {
+        "name": "cert-manager",
+        "version": "1.19.2",
+    },
+}
 
-@pytest.fixture
-def configure_loader_modules():
-    return {helm: {}}
 
+def test_list_releases(fake_output):
+    def side(command):
+        if command[0] == "get":
+            return fake_output.get(command[0] + "_" + command[1])
 
-def test__prepare_cmd():
-    assert helm._prepare_cmd() == ("helm",)
+        return fake_output.get(command[0])
 
+    with patch.object(pyhelm3.command.Command, "run", side_effect=side):
+        res = helm.list_releases()
 
-def test__prepare_cmd_binary():
-    assert helm._prepare_cmd(binary="binary") == ("binary",)
+        # only test first element here, we don't mock the individual status output of all releases in the mocked list output
+        assert isinstance(res, list)
+        assert res[0] == RELEASE
 
 
-def test__prepare_cmd_commands():
-    assert helm._prepare_cmd(commands=["com1", "com2"]) == (
-        "helm",
-        "com1",
-        "com2",
-    )
+def test_get_current_revision(fake_output):
+    def side(command):
+        if command[0] == "get":
+            return fake_output.get(command[0] + "_" + command[1])
 
+        return fake_output.get(command[0])
 
-def test__prepare_cmd_flags():
-    assert helm._prepare_cmd(flags=["flag1", "--flag2"]) == (
-        "helm",
-        "--flag1",
-        "--flag2",
-    )
+    with patch.object(pyhelm3.command.Command, "run", side_effect=side):
+        res = helm.get_current_revision("cert-manager")
 
+        assert isinstance(res, dict)
+        assert res == RELEASE
 
-def test__prepare_cmd_kvflags():
-    result_tuple = helm._prepare_cmd(kvflags={"kflag1": "vflag1", "--kflag2": "vflag2"})
-    tuple_valide_1 = (
-        "helm",
-        "--kflag1",
-        "vflag1",
-        "--kflag2",
-        "vflag2",
-    )
-    tuple_valide_2 = (
-        "helm",
-        "--kflag2",
-        "vflag2",
-        "--kflag1",
-        "vflag1",
-    )
 
-    assert result_tuple in (tuple_valide_1, tuple_valide_2)
+def test_get_chart(fake_output):
+    def side(command):
+        return fake_output.get(command[0] + "_" + command[1])
 
+    with patch.object(pyhelm3.command.Command, "run", side_effect=side):
+        res = helm.get_chart("oci://dp.apps.rancher.io/charts/cert-manager")
 
-def test__exec_cmd():
-    cmd_prepare = helm._prepare_cmd()
-    cmd_prepare_str = " ".join(cmd_prepare)
-    cmd_return = {
-        "stdout": "succes",
-        "stderr": "",
-        "retcode": 0,
-    }
-    result = cmd_return
-    result.update({"cmd": cmd_prepare_str})
-    with patch.dict(
-        helm.__salt__,
-        {"cmd.run_all": MagicMock(return_value=cmd_return)},  # pylint: disable=no-member
-    ):
-        assert helm._exec_cmd() == result
+        assert isinstance(res, dict)
 
+        # only comparing a couple fields here, information is mostly passed through 1:1 from pyhelm
+        assert res.get("ref") == "oci://dp.apps.rancher.io/charts/cert-manager"
+        assert res.get("metadata", {}).get("app_version") == "1.19.2"
 
-def test__exec_true_return_valid():
-    _exec_cmd_return = {"retcode": 0}
-    with patch("saltext.helm.modules.helm._exec_cmd", MagicMock(return_value=_exec_cmd_return)):
-        assert True is helm._exec_true_return()
+        res = helm.get_chart("oci://dp.apps.rancher.io/charts/cert-manager", "1.19.2")
 
+        assert isinstance(res, dict)
 
-def test__exec_true_return_not_valid():
-    _exec_cmd_return = {"retcode": -1, "stderr": "test"}
-    with patch("saltext.helm.modules.helm._exec_cmd", MagicMock(return_value=_exec_cmd_return)):
-        assert "test" == helm._exec_true_return()
+        assert res.get("ref") == "oci://dp.apps.rancher.io/charts/cert-manager"
+        assert res.get("metadata", {}).get("app_version") == "1.19.2"
 
+        res = helm.get_chart("oci://dp.apps.rancher.io/charts/cert-manager", "1.19.2", as_obj=True)
 
-def test__exec_string_return_valid():
-    _exec_cmd_return = {"retcode": 0, "stdout": "test"}
-    with patch("saltext.helm.modules.helm._exec_cmd", MagicMock(return_value=_exec_cmd_return)):
-        assert "test" == helm._exec_string_return()
+        assert isinstance(res, pyhelm3.models.Chart)
 
 
-def test__exec_string_return_not_valid():
-    _exec_cmd_return = {"retcode": -1, "stderr": "test"}
-    with patch("saltext.helm.modules.helm._exec_cmd", MagicMock(return_value=_exec_cmd_return)):
-        assert "test" == helm._exec_string_return()
+def test_install_or_upgrade_release(fake_output):
+    def side(
+        command, stdin=None
+    ):  # pylint: disable=unused-argument  # patch passes the second argumenteven if we do not use it
+        # if needed to make the mocking more dynamic in the future, values upon "upgrade" get passed as stdin here
 
+        if command[0] == "upgrade":
+            return fake_output.get(command[0])
+        if command[0] == "show" or command[0] == "get":
+            return fake_output.get(command[0] + "_" + command[1])
 
-def test__exec_dict_return_valide():
-    _exec_cmd_return = {"retcode": 0, "stdout": '{"test": true}'}
-    with patch("saltext.helm.modules.helm._exec_cmd", MagicMock(return_value=_exec_cmd_return)):
-        assert {"test": True} == helm._exec_dict_return()
+        pytest.fail("Incomplete side effect.")
 
+    with patch.object(pyhelm3.command.Command, "run", side_effect=side):
+        res = helm.install_or_upgrade_release(
+            "cert-manager",
+            "oci://dp.apps.rancher.io/charts/cert-manager",
+            {"crds": {"enable": False}},
+        )
 
-def test__exec_dict_return_valide_no_json():
-    _exec_cmd_return = {"retcode": 0, "stdout": '{"test": true}'}
-    with patch("saltext.helm.modules.helm._exec_cmd", MagicMock(return_value=_exec_cmd_return)):
-        assert '{"test": true}' == helm._exec_dict_return(kvflags={"output": "table"})
+        assert isinstance(res, pyhelm3.models.ReleaseRevision)
+        assert res.status.value == "deployed"
 
 
-def test__exec_dict_return_not_valid():
-    _exec_cmd_return = {"retcode": -1, "stderr": "test"}
-    with patch("saltext.helm.modules.helm._exec_cmd", MagicMock(return_value=_exec_cmd_return)):
-        assert "test" == helm._exec_dict_return()
+def test_uninstall_release(fake_output):
+    def side(command):
+        if command[0] == "show" or command[0] == "get":
+            return fake_output.get(command[0] + "_" + command[1])
 
+    with patch.object(pyhelm3.command.Command, "run", side_effect=side):
+        res = helm.uninstall_release(
+            "cert-manager",
+            namespace="default",
+        )
 
-def test_completion():
-    magic_mock = MagicMock(return_value="the_return")
-    with patch("saltext.helm.modules.helm._exec_string_return", magic_mock):
-        assert "the_return" == helm.completion("bash")
-        assert [
-            call(commands=["completion", "bash"], flags=None, kvflags=None)
-        ] == magic_mock.mock_calls
-
-
-def test_create():
-    magic_mock = MagicMock(return_value=True)
-    with patch("saltext.helm.modules.helm._exec_true_return", magic_mock):
-        assert True is helm.create("name")
-        assert [
-            call(commands=["create", "name"], flags=None, kvflags=None)
-        ] == magic_mock.mock_calls
-
-
-def test_dependency_build():
-    magic_mock = MagicMock(return_value=True)
-    with patch("saltext.helm.modules.helm._exec_true_return", magic_mock):
-        assert True is helm.dependency_build("chart")
-        assert [
-            call(
-                commands=["dependency", "build", "chart"],
-                flags=None,
-                kvflags=None,
-            )
-        ] == magic_mock.mock_calls
-
-
-def test_dependency_list():
-    magic_mock = MagicMock(return_value="the_return")
-    with patch("saltext.helm.modules.helm._exec_string_return", magic_mock):
-        assert "the_return" == helm.dependency_list("chart")
-        assert [
-            call(
-                commands=["dependency", "list", "chart"],
-                flags=None,
-                kvflags=None,
-            )
-        ] == magic_mock.mock_calls
-
-
-def test_dependency_update():
-    magic_mock = MagicMock(return_value=True)
-    with patch("saltext.helm.modules.helm._exec_true_return", magic_mock):
-        assert True is helm.dependency_update("chart")
-        assert [
-            call(
-                commands=["dependency", "update", "chart"],
-                flags=None,
-                kvflags=None,
-            )
-        ] == magic_mock.mock_calls
-
-
-def test_env():
-    magic_mock = MagicMock(return_value="the_return")
-    with patch("saltext.helm.modules.helm._exec_string_return", magic_mock):
-        assert "the_return" == helm.env()
-        assert [call(commands=["env"], flags=None, kvflags=None)] == magic_mock.mock_calls
-
-
-def test_get_all():
-    magic_mock = MagicMock(return_value="the_return")
-    with patch("saltext.helm.modules.helm._exec_string_return", magic_mock):
-        assert "the_return" == helm.get_all("release")
-        assert [
-            call(commands=["get", "all", "release"], flags=None, kvflags=None)
-        ] == magic_mock.mock_calls
-
-
-def test_get_hooks():
-    magic_mock = MagicMock(return_value="the_return")
-    with patch("saltext.helm.modules.helm._exec_string_return", magic_mock):
-        assert "the_return" == helm.get_hooks("release")
-        assert [
-            call(commands=["get", "hooks", "release"], flags=None, kvflags=None)
-        ] == magic_mock.mock_calls
-
-
-def test_get_manifest():
-    magic_mock = MagicMock(return_value="the_return")
-    with patch("saltext.helm.modules.helm._exec_string_return", magic_mock):
-        assert "the_return" == helm.get_manifest("release")
-        assert [
-            call(
-                commands=["get", "manifest", "release"],
-                flags=None,
-                kvflags=None,
-            )
-        ] == magic_mock.mock_calls
-
-
-def test_get_notes():
-    magic_mock = MagicMock(return_value="the_return")
-    with patch("saltext.helm.modules.helm._exec_string_return", magic_mock):
-        assert "the_return" == helm.get_notes("release")
-        assert [
-            call(commands=["get", "notes", "release"], flags=None, kvflags=None)
-        ] == magic_mock.mock_calls
-
-
-def test_get_values():
-    magic_mock = MagicMock(return_value={"test": True})
-    with patch("saltext.helm.modules.helm._exec_dict_return", magic_mock):
-        assert {"test": True} == helm.get_values("release")
-        assert [
-            call(commands=["get", "values", "release"], flags=None, kvflags=None)
-        ] == magic_mock.mock_calls
-
-
-def test_help_():
-    magic_mock = MagicMock(return_value="the_return")
-    with patch("saltext.helm.modules.helm._exec_string_return", magic_mock):
-        assert "the_return" == helm.help_("command")
-        assert [
-            call(commands=["help", "command"], flags=None, kvflags=None)
-        ] == magic_mock.mock_calls
-
-
-def test_history():
-    magic_mock = MagicMock(return_value={"test": True})
-    with patch("saltext.helm.modules.helm._exec_dict_return", magic_mock):
-        assert {"test": True} == helm.history("release")
-        assert [
-            call(commands=["history", "release"], flags=None, kvflags=None)
-        ] == magic_mock.mock_calls
-
-
-def test_install():
-    magic_mock = MagicMock(return_value=True)
-    with patch("saltext.helm.modules.helm._exec_true_return", magic_mock):
-        assert True is helm.install("release", "chart")
-        assert [
-            call(
-                commands=["install", "release", "chart"],
-                flags=None,
-                kvflags=None,
-            )
-        ] == magic_mock.mock_calls
-
-
-def test_lint():
-    magic_mock = MagicMock(return_value=True)
-    with patch("saltext.helm.modules.helm._exec_true_return", magic_mock):
-        assert True is helm.lint("path")
-        assert [call(commands=["lint", "path"], flags=None, kvflags=None)] == magic_mock.mock_calls
-
-
-def test_list_():
-    magic_mock = MagicMock(return_value={"test": True})
-    with patch("saltext.helm.modules.helm._exec_dict_return", magic_mock):
-        assert {"test": True} == helm.list_()
-        assert [call(commands=["list"], flags=None, kvflags=None)] == magic_mock.mock_calls
-
-
-def test_package():
-    magic_mock = MagicMock(return_value=True)
-    with patch("saltext.helm.modules.helm._exec_true_return", magic_mock):
-        assert True is helm.package("chart")
-        assert [
-            call(commands=["package", "chart"], flags=None, kvflags=None)
-        ] == magic_mock.mock_calls
-
-
-def test_plugin_install():
-    magic_mock = MagicMock(return_value=True)
-    with patch("saltext.helm.modules.helm._exec_true_return", magic_mock):
-        assert True is helm.plugin_install("path")
-        assert [
-            call(commands=["plugin", "install", "path"], flags=None, kvflags=None)
-        ] == magic_mock.mock_calls
-
-
-def test_plugin_list():
-    magic_mock = MagicMock(return_value="the_return")
-    with patch("saltext.helm.modules.helm._exec_string_return", magic_mock):
-        assert "the_return" == helm.plugin_list()
-        assert [
-            call(commands=["plugin", "list"], flags=None, kvflags=None)
-        ] == magic_mock.mock_calls
-
-
-def test_plugin_uninstall():
-    magic_mock = MagicMock(return_value=True)
-    with patch("saltext.helm.modules.helm._exec_true_return", magic_mock):
-        assert True is helm.plugin_uninstall("plugin")
-        assert [
-            call(
-                commands=["plugin", "uninstall", "plugin"],
-                flags=None,
-                kvflags=None,
-            )
-        ] == magic_mock.mock_calls
-
-
-def test_plugin_update():
-    magic_mock = MagicMock(return_value=True)
-    with patch("saltext.helm.modules.helm._exec_true_return", magic_mock):
-        assert True is helm.plugin_update("plugin")
-        assert [
-            call(
-                commands=["plugin", "update", "plugin"],
-                flags=None,
-                kvflags=None,
-            )
-        ] == magic_mock.mock_calls
-
-
-def test_pull():
-    magic_mock = MagicMock(return_value=True)
-    with patch("saltext.helm.modules.helm._exec_true_return", magic_mock):
-        assert True is helm.pull("pkg")
-        assert [call(commands=["pull", "pkg"], flags=None, kvflags=None)] == magic_mock.mock_calls
-
-
-def test_repo_add():
-    magic_mock = MagicMock(return_value=True)
-    with patch("saltext.helm.modules.helm._exec_true_return", magic_mock):
-        assert True is helm.repo_add("name", "url")
-        assert [
-            call(
-                commands=["repo", "add", "name", "url"],
-                flags=None,
-                kvflags=None,
-            )
-        ] == magic_mock.mock_calls
-
-
-def test_repo_index():
-    magic_mock = MagicMock(return_value=True)
-    with patch("saltext.helm.modules.helm._exec_true_return", magic_mock):
-        assert True is helm.repo_index("directory")
-        assert [
-            call(
-                commands=["repo", "index", "directory"],
-                flags=None,
-                kvflags=None,
-            )
-        ] == magic_mock.mock_calls
-
-
-def test_repo_list():
-    magic_mock = MagicMock(return_value={"test": True})
-    with patch("saltext.helm.modules.helm._exec_dict_return", magic_mock):
-        assert {"test": True} == helm.repo_list()
-        assert [call(commands=["repo", "list"], flags=None, kvflags=None)] == magic_mock.mock_calls
-
-
-def test_repo_remove():
-    magic_mock = MagicMock(return_value=True)
-    with patch("saltext.helm.modules.helm._exec_true_return", magic_mock):
-        assert True is helm.repo_remove("name")
-        assert [
-            call(commands=["repo", "remove", "name"], flags=None, kvflags=None)
-        ] == magic_mock.mock_calls
-
-
-def test_repo_update():
-    magic_mock = MagicMock(return_value=True)
-    with patch("saltext.helm.modules.helm._exec_true_return", magic_mock):
-        assert True is helm.repo_update()
-        assert [
-            call(commands=["repo", "update"], flags=None, kvflags=None)
-        ] == magic_mock.mock_calls
-
-
-def test_repo_manage_present_bad_list():
-    with patch("saltext.helm.modules.helm.repo_list", MagicMock(return_value=None)):
-        with pytest.raises(CommandExecutionError):
-            helm.repo_manage(present=["test"])
-
-
-def test_repo_manage_present_bad_format():
-    with patch("saltext.helm.modules.helm.repo_list", MagicMock(return_value=None)):
-        with pytest.raises(CommandExecutionError):
-            helm.repo_manage(present=[{"test": True}])
-
-
-def test_repo_manage_present_failed():
-    result_wanted = {
-        "present": [],
-        "added": [],
-        "absent": [],
-        "removed": [],
-        "failed": [{"name": "myname", "url": "myurl"}],
-    }
-    with patch("saltext.helm.modules.helm.repo_list", MagicMock(return_value=None)):
-        with patch("saltext.helm.modules.helm.repo_add", MagicMock(return_value="failed")):
-            assert helm.repo_manage(present=[{"name": "myname", "url": "myurl"}]) == result_wanted
-
-
-def test_repo_manage_present_succeed():
-    result_wanted = {
-        "present": [],
-        "added": [{"name": "myname", "url": "myurl"}],
-        "absent": [],
-        "removed": [],
-        "failed": [],
-    }
-    with patch("saltext.helm.modules.helm.repo_list", MagicMock(return_value=None)):
-        with patch("saltext.helm.modules.helm.repo_add", MagicMock(return_value=True)):
-            assert helm.repo_manage(present=[{"name": "myname", "url": "myurl"}]) == result_wanted
-
-
-def test_repo_manage_present_already_present():
-    result_wanted = {
-        "present": [{"name": "myname", "url": "myurl"}],
-        "added": [],
-        "absent": [],
-        "removed": [],
-        "failed": [],
-    }
-    with patch(
-        "saltext.helm.modules.helm.repo_list",
-        MagicMock(return_value=[{"name": "myname", "url": "myurl"}]),
-    ):
-        assert helm.repo_manage(present=[{"name": "myname", "url": "myurl"}]) == result_wanted
-
-
-def test_repo_manage_prune():
-    result_wanted = {
-        "present": [],
-        "added": [],
-        "absent": [],
-        "removed": ["myname"],
-        "failed": [],
-    }
-    with patch(
-        "saltext.helm.modules.helm.repo_list",
-        MagicMock(return_value=[{"name": "myname", "url": "myurl"}]),
-    ):
-        with patch("saltext.helm.modules.helm.repo_remove", MagicMock(return_value=True)):
-            assert helm.repo_manage(prune=True) == result_wanted
-
-
-def test_repo_manage_absent():
-    result_wanted = {
-        "present": [],
-        "added": [],
-        "absent": ["myname"],
-        "removed": [],
-        "failed": [],
-    }
-    with patch("saltext.helm.modules.helm.repo_list", MagicMock(return_value=None)):
-        with patch("saltext.helm.modules.helm.repo_remove", MagicMock(return_value=False)):
-            assert helm.repo_manage(absent=["myname"]) == result_wanted
-
-
-def test_repo_manage_removed():
-    result_wanted = {
-        "present": [],
-        "added": [],
-        "absent": [],
-        "removed": ["myname"],
-        "failed": [],
-    }
-    with patch("saltext.helm.modules.helm.repo_list", MagicMock(return_value=None)):
-        with patch("saltext.helm.modules.helm.repo_remove", MagicMock(return_value=True)):
-            assert helm.repo_manage(absent=["myname"]) == result_wanted
-
-
-def test_rollback():
-    magic_mock = MagicMock(return_value=True)
-    with patch("saltext.helm.modules.helm._exec_true_return", magic_mock):
-        assert True is helm.rollback("release", "revision")
-        assert [
-            call(
-                commands=["rollback", "release", "revision"],
-                flags=None,
-                kvflags=None,
-            )
-        ] == magic_mock.mock_calls
-
-
-def test_search_hub():
-    magic_mock = MagicMock(return_value={"test": True})
-    with patch("saltext.helm.modules.helm._exec_dict_return", magic_mock):
-        assert {"test": True} == helm.search_hub("keyword")
-        assert [
-            call(commands=["search", "hub", "keyword"], flags=None, kvflags=None)
-        ] == magic_mock.mock_calls
-
-
-def test_search_repo():
-    magic_mock = MagicMock(return_value={"test": True})
-    with patch("saltext.helm.modules.helm._exec_dict_return", magic_mock):
-        assert {"test": True} == helm.search_repo("keyword")
-        assert [
-            call(commands=["search", "repo", "keyword"], flags=None, kvflags=None)
-        ] == magic_mock.mock_calls
-
-
-def test_show_all():
-    magic_mock = MagicMock(return_value="the_return")
-    with patch("saltext.helm.modules.helm._exec_string_return", magic_mock):
-        assert "the_return" == helm.show_all("chart")
-        assert [
-            call(commands=["show", "all", "chart"], flags=None, kvflags=None)
-        ] == magic_mock.mock_calls
-
-
-def test_show_chart():
-    magic_mock = MagicMock(return_value="the_return")
-    with patch("saltext.helm.modules.helm._exec_string_return", magic_mock):
-        assert "the_return" == helm.show_chart("chart")
-        assert [
-            call(commands=["show", "chart", "chart"], flags=None, kvflags=None)
-        ] == magic_mock.mock_calls
-
-
-def test_show_readme():
-    magic_mock = MagicMock(return_value="the_return")
-    with patch("saltext.helm.modules.helm._exec_string_return", magic_mock):
-        assert "the_return" == helm.show_readme("chart")
-        assert [
-            call(commands=["show", "readme", "chart"], flags=None, kvflags=None)
-        ] == magic_mock.mock_calls
-
-
-def test_show_values():
-    magic_mock = MagicMock(return_value="the_return")
-    with patch("saltext.helm.modules.helm._exec_string_return", magic_mock):
-        assert "the_return" == helm.show_values("chart")
-        assert [
-            call(commands=["show", "values", "chart"], flags=None, kvflags=None)
-        ] == magic_mock.mock_calls
-
-
-def test_status():
-    magic_mock = MagicMock(return_value={"test": True})
-    with patch("saltext.helm.modules.helm._exec_dict_return", magic_mock):
-        assert {"test": True} == helm.status("release")
-        assert [
-            call(commands=["status", "release"], flags=None, kvflags=None)
-        ] == magic_mock.mock_calls
-
-
-def test_template():
-    magic_mock = MagicMock(return_value="the_return")
-    with patch("saltext.helm.modules.helm._exec_string_return", magic_mock):
-        assert "the_return" == helm.template("name", "chart")
-        assert [
-            call(commands=["template", "name", "chart"], flags=None, kvflags=None)
-        ] == magic_mock.mock_calls
-
-
-def test_test():
-    magic_mock = MagicMock(return_value="the_return")
-    with patch("saltext.helm.modules.helm._exec_string_return", magic_mock):
-        assert "the_return" == helm.test("release")
-        assert [
-            call(commands=["test", "release"], flags=None, kvflags=None)
-        ] == magic_mock.mock_calls
-
-
-def test_uninstall():
-    magic_mock = MagicMock(return_value=True)
-    with patch("saltext.helm.modules.helm._exec_true_return", magic_mock):
-        assert True is helm.uninstall("release")
-        assert [
-            call(commands=["uninstall", "release"], flags=None, kvflags=None)
-        ] == magic_mock.mock_calls
-
-
-def test_upgrade():
-    magic_mock = MagicMock(return_value=True)
-    with patch("saltext.helm.modules.helm._exec_true_return", magic_mock):
-        assert True is helm.upgrade("release", "chart")
-        assert [
-            call(
-                commands=["upgrade", "release", "chart"],
-                flags=None,
-                kvflags=None,
-            )
-        ] == magic_mock.mock_calls
-
-
-def test_verify():
-    magic_mock = MagicMock(return_value=True)
-    with patch("saltext.helm.modules.helm._exec_true_return", magic_mock):
-        assert True is helm.verify("path")
-        assert [
-            call(commands=["verify", "path"], flags=None, kvflags=None)
-        ] == magic_mock.mock_calls
-
-
-def test_version():
-    magic_mock = MagicMock(return_value="the_return")
-    with patch("saltext.helm.modules.helm._exec_string_return", magic_mock):
-        assert "the_return" == helm.version()
-        assert [call(commands=["version"], flags=None, kvflags=None)] == magic_mock.mock_calls
+        assert res is None
