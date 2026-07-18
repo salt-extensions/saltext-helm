@@ -6,7 +6,9 @@ Generally, extensions need to be installed into the same Python environment Salt
 ```yaml
 Install Salt Helm extension:
   pip.installed:
-    - name: saltext-helm
+    - names:
+        - saltext-helm
+        - git+https://github.com/azimuth-cloud/pyhelm3.git
 ```
 :::
 

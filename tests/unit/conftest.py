@@ -1,5 +1,7 @@
 import os
+from unittest.mock import patch
 
+import pyhelm3
 import pytest
 import salt.config
 
@@ -60,3 +62,32 @@ def syndic_opts(tmp_path):  # pragma: no cover
     opts["log_file"] = "logs/syndic.log"
     opts["conf_file"] = os.path.join(opts["conf_dir"], "syndic")
     return opts
+
+
+@pytest.fixture(scope="session")
+def fake_output():
+    out = {}
+    for cmd in [
+        "get_all",
+        "get_values",
+        "list",
+        "show_chart",
+        "status",
+        "upgrade",
+    ]:
+        with open(f"tests/unit/fake_output/helm_{cmd}.out", encoding="utf-8") as fh:
+            out[cmd] = fh.read()
+
+    yield out
+
+
+@pytest.fixture()
+def fake_run(fake_output):
+    def side(command, stdin=None):
+        if command[0] in ("get", "show"):
+            return fake_output.get(command[0] + "_" + command[1])
+
+        return fake_output.get(command[0])
+
+    with patch.object(pyhelm3.command.Command, "run", side_effect=side) as mocked_run:
+        yield mocked_run

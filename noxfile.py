@@ -116,6 +116,9 @@ def _install_requirements(
         if install_test_requirements:
             install_extras.append("tests")
 
+            # https://github.com/azimuth-cloud/pyhelm3/issues/28
+            session.install("git+https://github.com/azimuth-cloud/pyhelm3.git")
+
         if EXTRA_REQUIREMENTS_INSTALL:
             session.log(
                 "Installing the following extra requirements because the "

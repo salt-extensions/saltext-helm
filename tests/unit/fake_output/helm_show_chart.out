@@ -1,0 +1,32 @@
+annotations:
+  helm.sh/images: |
+    - image: dp.apps.rancher.io/containers/cert-manager-acmesolver:1.19.2-3.10
+      name: cert-manager-acmesolver
+    - image: dp.apps.rancher.io/containers/cert-manager-cainjector:1.19.2-3.10
+      name: cert-manager-cainjector
+    - image: dp.apps.rancher.io/containers/cert-manager-controller:1.19.2-3.10
+      name: cert-manager-controller
+    - image: dp.apps.rancher.io/containers/cert-manager-startupapicheck:1.19.2-3.10
+      name: cert-manager-startupapicheck
+    - image: dp.apps.rancher.io/containers/cert-manager-webhook:1.19.2-3.10
+      name: cert-manager-webhook
+  license: Apache-2.0
+apiVersion: v2
+appVersion: 1.19.2
+description: cert-manager is a powerful and extensible X.509 certificate controller
+  for Kubernetes and OpenShift workloads. It will obtain certificates from a variety
+  of Issuers, both popular public Issuers as well as private Issuers, and ensure the
+  certificates are valid and up-to-date, and will attempt to renew certificates at
+  a configured time before expiry.
+home: https://apps.rancher.io/applications/cert-manager
+icon: https://apps.rancher.io/logos/cert-manager.png
+keywords:
+- cert-manager
+- kube-lego
+- letsencrypt
+- tls
+maintainers:
+- name: SUSE LLC
+  url: https://www.suse.com/
+name: cert-manager
+version: 1.19.2
